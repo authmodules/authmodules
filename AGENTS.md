@@ -27,6 +27,18 @@ For every task:
 5. Move it to `Blocked` if work cannot continue.
 6. Move it to `Done` only after implementation, checks, and documentation are complete.
 
+## Ownership
+
+Assign accepted work to the responsible owner.
+
+For the current single-maintainer workflow:
+
+- assign `alyldas` to issues and pull requests;
+- assign `alyldas` to `Ready` and `In progress` project items when GitHub supports it;
+- keep unreviewed `Inbox` ideas unassigned unless ownership is already clear.
+
+Do not leave implementation issues unassigned.
+
 ## Scope discipline
 
 Keep changes small and aligned with the selected project item.
