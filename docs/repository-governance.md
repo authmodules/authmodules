@@ -59,7 +59,7 @@ Repositories should include these files when applicable:
 - Pull request template from the organization `.github` repository.
 - Issue templates from the organization `.github` repository.
 
-This baseline does not add those automation files in this pull request. The rollout is tracked separately in [settings rollout](settings-rollout.md).
+This baseline does not add those automation files in this pull request.
 
 ## Package Repository Constraints
 
