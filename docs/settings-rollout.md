@@ -8,11 +8,11 @@ This document is a checklist for manual rollout. This pull request does not chan
 
 The current repository inventory was checked while preparing this baseline:
 
-| Repository | Default branch | Issues | Projects | Wiki | Squash merge | Merge commits | Rebase merge | Auto-delete head branches | `main` protection |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `authmodules/authmodules` | `main` | Enabled | Enabled | Enabled | Enabled | Enabled | Enabled | Disabled | Not protected |
-| `authmodules/core` | `main` | Enabled | Enabled | Enabled | Enabled | Enabled | Enabled | Disabled | Not protected |
-| `authmodules/.github` | `main` | Enabled | Enabled | Enabled | Enabled | Enabled | Enabled | Disabled | Not protected |
+| Repository                | Default branch | Issues  | Projects | Wiki    | Squash merge | Merge commits | Rebase merge | Auto-delete head branches | `main` protection |
+|---------------------------|----------------|---------|----------|---------|--------------|---------------|--------------|---------------------------|-------------------|
+| `authmodules/authmodules` | `main`         | Enabled | Enabled  | Enabled | Enabled      | Enabled       | Enabled      | Disabled                  | Not protected     |
+| `authmodules/core`        | `main`         | Enabled | Enabled  | Enabled | Enabled      | Enabled       | Enabled      | Disabled                  | Not protected     |
+| `authmodules/.github`     | `main`         | Enabled | Enabled  | Enabled | Enabled      | Enabled       | Enabled      | Disabled                  | Not protected     |
 
 The rollout gaps are therefore:
 
