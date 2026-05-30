@@ -2,7 +2,7 @@
 
 This rollout documents the current fallback for repository governance settings. Organization rulesets remain the preferred future mechanism, but they are not available in the current organization plan. Until organization rulesets are available, settings must be applied per repository.
 
-This document is a checklist for ongoing rollout. Repository settings are verified from GitHub before each settings pass so the document reflects current repository state instead of an old manual checklist.
+This document is a checklist for manual rollout. This pull request does not change GitHub settings, branch protection, CodeQL setup, Dependabot setup, or repository automation files.
 
 ## Observed Settings Snapshot
 
@@ -10,16 +10,17 @@ The current repository inventory was checked while preparing this baseline:
 
 | Repository | Default branch | Issues | Projects | Wiki | Squash merge | Merge commits | Rebase merge | Auto-delete head branches | `main` protection |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `authmodules/authmodules` | `main` | Enabled | Enabled | Disabled | Enabled | Disabled | Disabled | Enabled | Protected; pull request review and conversation resolution required; no status checks |
-| `authmodules/core` | `main` | Enabled | Enabled | Disabled | Enabled | Disabled | Disabled | Enabled | Protected; `CI / Check` required |
-| `authmodules/.github` | `main` | Enabled | Enabled | Disabled | Enabled | Disabled | Disabled | Enabled | Protected; pull request review and conversation resolution required; no status checks |
+| `authmodules/authmodules` | `main` | Enabled | Enabled | Enabled | Enabled | Enabled | Enabled | Disabled | Not protected |
+| `authmodules/core` | `main` | Enabled | Enabled | Enabled | Enabled | Enabled | Enabled | Disabled | Not protected |
+| `authmodules/.github` | `main` | Enabled | Enabled | Enabled | Enabled | Enabled | Enabled | Disabled | Not protected |
 
-The remaining rollout checks are therefore:
+The rollout gaps are therefore:
 
-- Keep repository settings aligned when new repositories are added.
-- Keep `authmodules/core` required status checks aligned with the actual `CI` workflow job name.
-- Keep CodeQL, release automation, and Dependabot present only where they match repository purpose.
-- Revisit organization rulesets when the organization plan supports them.
+- Disable Wiki unless explicitly needed.
+- Disable merge commits.
+- Disable rebase merge unless explicitly needed.
+- Enable automatic deletion of head branches.
+- Add per-repository `main` protection until organization rulesets are available.
 
 ## Current Repositories
 
@@ -107,7 +108,7 @@ Expected files:
 - Pull request template with the review-thread checklist item from [pull request review policy](pr-review-policy.md).
 - Issue templates used by AuthModules repositories.
 
-The organization community repository owns the shared templates and public profile.
+This pull request does not modify `authmodules/.github`.
 
 ## Future Repositories
 
@@ -126,7 +127,8 @@ Before the first implementation pull request in a future repository:
 
 Follow-up rollout work should be split into focused issues or pull requests:
 
-- Re-check branch protection after workflow names change.
-- Add repository-specific docs validation only if a real validation need appears.
-- Keep community templates aligned with the pull request review policy.
+- Apply per-repository branch protection to `authmodules/authmodules`.
+- Apply per-repository branch protection to `authmodules/core`.
+- Review `authmodules/.github` templates and add the required PR review checklist item.
+- Add or confirm security automation for JavaScript and TypeScript repositories.
 - Revisit organization rulesets when the organization plan supports them.
