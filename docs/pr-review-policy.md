@@ -14,11 +14,11 @@ Before merge:
 - Prefer squash merge.
 - Delete the source branch after merge.
 
-Comments from ChatGPT or Codex must be treated as review input, not as noise. A pull request should not be merged until those comments are understood and handled.
+Assistant comments must be treated as review input, not as noise. A pull request should not be merged until those comments are understood and handled.
 
 ## Handling Review Comments
 
-For each ChatGPT or Codex comment:
+For each assistant comment:
 
 - Read the full comment and surrounding code or document context.
 - Classify it as valid or not applicable.
@@ -35,7 +35,7 @@ Do not expand a pull request into adjacent roadmap work to satisfy an out-of-sco
 The pull request template must include this checklist item:
 
 ```markdown
-- [ ] I inspected PR comments and review threads, including ChatGPT and Codex comments, and there are no unresolved non-outdated review threads.
+- [ ] I inspected PR comments and review threads, including assistant comments, and there are no unresolved non-outdated review threads.
 ```
 
 The checklist item belongs in the organization `.github` repository template. This pull request documents the requirement but does not modify the template.
