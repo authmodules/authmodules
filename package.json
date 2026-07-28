@@ -1,0 +1,37 @@
+{
+  "name": "authmodules",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Architecture, specifications, integration tests, and release coordination for the AuthModules ecosystem.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=24"
+  },
+  "packageManager": "npm@11.16.0",
+  "devEngines": {
+    "packageManager": {
+      "name": "npm",
+      "version": "11.16.0",
+      "onFail": "error"
+    }
+  },
+  "scripts": {
+    "check": "npm run lint && npm run spec:check && npm run spec:sync && npm run ecosystem:check && npm run release:check && npm run boundaries:check && npm run test:stack && npm run test:integration && npm run coverage:check && npm run packed:check",
+    "boundaries:check": "node scripts/check-package-boundaries.js",
+    "ecosystem:check": "node scripts/check-ecosystem-repos.js",
+    "release:prepare": "node scripts/write-release-manifest.js",
+    "release:check": "node scripts/check-release-manifests.js",
+    "coverage:check": "node scripts/check-coverage.js",
+    "packed:check": "node scripts/check-packed-consumer.js",
+    "lint": "node scripts/lint-workspace.js",
+    "test:integration": "node --test tests/integration/*.test.ts",
+    "test:stack": "node --test tests/*.test.ts",
+    "spec:check": "tsc -p tsconfig.spec.json",
+    "spec:sync": "node scripts/check-contract-spec-sync.js"
+  },
+  "devDependencies": {
+    "pg": "^8.22.0",
+    "typescript": "^5.9.0"
+  }
+}

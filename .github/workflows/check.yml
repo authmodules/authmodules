@@ -1,0 +1,272 @@
+name: Check
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      release_id:
+        description: Committed release manifest identifier, for example 0.1.0
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  resolve_release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      published_versions: ${{ steps.manifest.outputs.published_versions }}
+      published_integrities: ${{ steps.manifest.outputs.published_integrities }}
+      contracts_ref: ${{ steps.manifest.outputs.contracts_ref }}
+      core_ref: ${{ steps.manifest.outputs.core_ref }}
+      testkit_ref: ${{ steps.manifest.outputs.testkit_ref }}
+      method_password_ref: ${{ steps.manifest.outputs.method_password_ref }}
+      method_otp_ref: ${{ steps.manifest.outputs.method_otp_ref }}
+      store_postgres_ref: ${{ steps.manifest.outputs.store_postgres_ref }}
+      crypto_node_ref: ${{ steps.manifest.outputs.crypto_node_ref }}
+      token_opaque_ref: ${{ steps.manifest.outputs.token_opaque_ref }}
+      carrier_cookie_ref: ${{ steps.manifest.outputs.carrier_cookie_ref }}
+      delivery_email_smtp_ref: ${{ steps.manifest.outputs.delivery_email_smtp_ref }}
+      effects_sync_delivery_ref: ${{ steps.manifest.outputs.effects_sync_delivery_ref }}
+      framework_express_ref: ${{ steps.manifest.outputs.framework_express_ref }}
+      effects_outbox_ref: ${{ steps.manifest.outputs.effects_outbox_ref }}
+      outbox_worker_ref: ${{ steps.manifest.outputs.outbox_worker_ref }}
+      guard_memory_ref: ${{ steps.manifest.outputs.guard_memory_ref }}
+    steps:
+      - name: Checkout release plan
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          path: authmodules
+      - name: Setup Node
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Resolve immutable release manifest
+        if: github.event_name == 'workflow_dispatch'
+        id: manifest
+        run: node scripts/resolve-release-manifest.js
+        working-directory: authmodules
+        env:
+          AUTHMODULES_RELEASE_ID: ${{ inputs.release_id }}
+          AUTHMODULES_RELEASE_REF: ${{ github.ref }}
+
+  check:
+    needs: resolve_release
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_DB: authmodules
+          POSTGRES_PASSWORD: authmodules
+          POSTGRES_USER: authmodules
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U authmodules -d authmodules"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout control repo
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          path: authmodules
+      - name: Checkout contracts
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          repository: authmodules/contracts
+          ref: ${{ needs.resolve_release.outputs.contracts_ref || 'main' }}
+          path: contracts
+      - name: Checkout core
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          repository: authmodules/core
+          ref: ${{ needs.resolve_release.outputs.core_ref || 'main' }}
+          path: core
+      - name: Checkout testkit
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          repository: authmodules/testkit
+          ref: ${{ needs.resolve_release.outputs.testkit_ref || 'main' }}
+          path: testkit
+      - name: Checkout method-password
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          repository: authmodules/method-password
+          ref: ${{ needs.resolve_release.outputs.method_password_ref || 'main' }}
+          path: method-password
+      - name: Checkout method-otp
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          repository: authmodules/method-otp
+          ref: ${{ needs.resolve_release.outputs.method_otp_ref || 'main' }}
+          path: method-otp
+      - name: Checkout store-postgres
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          repository: authmodules/store-postgres
+          ref: ${{ needs.resolve_release.outputs.store_postgres_ref || 'main' }}
+          path: store-postgres
+      - name: Checkout crypto-node
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          repository: authmodules/crypto-node
+          ref: ${{ needs.resolve_release.outputs.crypto_node_ref || 'main' }}
+          path: crypto-node
+      - name: Checkout token-opaque
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          repository: authmodules/token-opaque
+          ref: ${{ needs.resolve_release.outputs.token_opaque_ref || 'main' }}
+          path: token-opaque
+      - name: Checkout carrier-cookie
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          repository: authmodules/carrier-cookie
+          ref: ${{ needs.resolve_release.outputs.carrier_cookie_ref || 'main' }}
+          path: carrier-cookie
+      - name: Checkout delivery-email-smtp
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          repository: authmodules/delivery-email-smtp
+          ref: ${{ needs.resolve_release.outputs.delivery_email_smtp_ref || 'main' }}
+          path: delivery-email-smtp
+      - name: Checkout effects-sync-delivery
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          repository: authmodules/effects-sync-delivery
+          ref: ${{ needs.resolve_release.outputs.effects_sync_delivery_ref || 'main' }}
+          path: effects-sync-delivery
+      - name: Checkout framework-express
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          repository: authmodules/framework-express
+          ref: ${{ needs.resolve_release.outputs.framework_express_ref || 'main' }}
+          path: framework-express
+      - name: Checkout effects-outbox
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          repository: authmodules/effects-outbox
+          ref: ${{ needs.resolve_release.outputs.effects_outbox_ref || 'main' }}
+          path: effects-outbox
+      - name: Checkout outbox-worker
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          repository: authmodules/outbox-worker
+          ref: ${{ needs.resolve_release.outputs.outbox_worker_ref || 'main' }}
+          path: outbox-worker
+      - name: Checkout guard-memory
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          repository: authmodules/guard-memory
+          ref: ${{ needs.resolve_release.outputs.guard_memory_ref || 'main' }}
+          path: guard-memory
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: authmodules/package-lock.json
+      - name: Install exact npm
+        run: npm install --global npm@11.16.0
+      - name: Verify immutable release sources
+        if: github.event_name == 'workflow_dispatch'
+        run: node scripts/check-release-workspace.js
+        working-directory: authmodules
+        env:
+          AUTHMODULES_RELEASE_ID: ${{ inputs.release_id }}
+      - name: Install control dependencies
+        run: npm ci
+        working-directory: authmodules
+      - name: Install package dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          for package in \
+            contracts \
+            core \
+            testkit \
+            method-password \
+            method-otp \
+            store-postgres \
+            crypto-node \
+            token-opaque \
+            carrier-cookie \
+            delivery-email-smtp \
+            effects-sync-delivery \
+            framework-express \
+            effects-outbox \
+            outbox-worker \
+            guard-memory
+          do
+            npm ci --omit=peer --legacy-peer-deps --prefix "$package"
+          done
+      - name: Check ecosystem
+        run: npm run check
+        working-directory: authmodules
+        env:
+          AUTHMODULES_POSTGRES_URL: postgres://authmodules:authmodules@127.0.0.1:5432/authmodules
+
+  published-consumer:
+    if: github.event_name == 'workflow_dispatch'
+    needs:
+      - resolve_release
+      - check
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Checkout control repo
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          path: authmodules
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: authmodules/package-lock.json
+          registry-url: https://npm.pkg.github.com
+          scope: '@authmodules'
+      - name: Install exact npm
+        run: npm install --global npm@11.16.0
+      - name: Install control dependencies
+        run: npm ci --ignore-scripts
+        working-directory: authmodules
+      - name: Verify published packages
+        run: npm run packed:check
+        working-directory: authmodules
+        env:
+          AUTHMODULES_PUBLISHED_VERSIONS: ${{ needs.resolve_release.outputs.published_versions }}
+          AUTHMODULES_PUBLISHED_INTEGRITIES: ${{ needs.resolve_release.outputs.published_integrities }}
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
