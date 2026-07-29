@@ -83,6 +83,12 @@ jobs:
         with:
           persist-credentials: false
           path: authmodules
+      - name: Checkout community files
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          repository: authmodules/.github
+          path: .github
       - name: Checkout contracts
         uses: actions/checkout@v7
         with:
