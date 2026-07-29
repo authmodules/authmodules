@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.1 — Validation hardening
+
+- Hardened mutation timestamp validation in the in-memory test store.
+- Hardened PostgreSQL record validation for hostile date values.
+- Mapped invalid opaque token dates and hostile guard inputs to typed failures.
+- Validated renewed outbox leases before worker reuse.
+
 ## 0.1.0 — First release
 
 - Established framework-neutral authentication and identity contracts.
