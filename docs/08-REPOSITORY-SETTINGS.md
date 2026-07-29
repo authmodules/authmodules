@@ -1,6 +1,6 @@
 # 08 — Repository settings and first release
 
-This document records the intended GitHub configuration. It does not authorize remote changes, pushes, tags, or package publication.
+This document records the required GitHub configuration and the audited first-release procedure. The `0.1.0` procedure below has been completed against immutable release tags and is retained as the release audit trail. This document does not authorize remote changes, pushes, tags, or package publication.
 
 ## Repository metadata
 

@@ -57,7 +57,7 @@ The outbox contract remains an optional extension of the stable contract surface
 
 ## Local Checks
 
-Use Node.js 24 or newer. Runtime repositories currently resolve the type-only contracts source from a sibling `../contracts` checkout, so keep the repositories as siblings when running package checks before the first contracts release.
+Use Node.js 24 or newer. Runtime repositories resolve the type-only contracts source from a sibling `../contracts` checkout during local development, so keep the repositories as siblings when running package checks.
 
 ```sh
 AUTHMODULES_POSTGRES_URL=postgres://... npm run check
@@ -65,7 +65,7 @@ AUTHMODULES_POSTGRES_URL=postgres://... npm run check
 
 Use a dedicated disposable PostgreSQL database: the integration suite resets AuthModules tables. The check validates the contract/spec mirror, repository boundaries, release manifests, cross-package authentication flows, coverage thresholds, generated declarations, and a clean consumer installation from locally packed tarballs. It does not publish, tag, or push anything.
 
-The planned GitHub repository configuration, GitHub Packages authentication, and first-release order are documented in [docs/08-REPOSITORY-SETTINGS.md](docs/08-REPOSITORY-SETTINGS.md).
+The GitHub repository configuration, GitHub Packages authentication, and audited first-release procedure are documented in [docs/08-REPOSITORY-SETTINGS.md](docs/08-REPOSITORY-SETTINGS.md).
 
 ## License
 

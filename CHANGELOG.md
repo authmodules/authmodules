@@ -8,4 +8,4 @@
 - Added PostgreSQL, Node.js crypto, opaque token, cookie, Express, SMTP, guard, and outbox adapters.
 - Added executable compliance suites, real PostgreSQL integration coverage, cross-package authentication stack tests, and packed-consumer verification.
 
-Prepared locally for the first release. No package, tag, or release has been published yet.
+Published as protected `v0.1.0` releases through GitHub Packages. npmjs publication remains intentionally deferred.
