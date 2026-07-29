@@ -36,8 +36,12 @@ for (const file of files.filter((candidate) => candidate.endsWith('.md'))) {
   const content = await readFile(file, 'utf8')
   const relativePath = path.relative(rootPath, file)
 
-  if (content.includes('](/')) {
-    fail(`${relativePath} contains an absolute markdown link`)
+  const rootRelativeLinks = [...content.matchAll(/\]\(\s*(\/[^)]*)\)/g)]
+  for (const [, destination] of rootRelativeLinks) {
+    const [target] = destination.trim().split(/\s+/, 1)
+    if (!target.startsWith('/authmodules/')) {
+      fail(`${relativePath} contains an unsupported root-relative markdown link: ${target}`)
+    }
   }
 
   if (content.includes('file://')) {
