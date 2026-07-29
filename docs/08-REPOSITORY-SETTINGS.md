@@ -34,10 +34,11 @@ Package repositories must remain public, independently versioned, and limited to
 - Issues disabled in `.github`; its community files route support and security reports to the central repository.
 - Projects and Wiki disabled unless a concrete maintenance need appears.
 - Private vulnerability reporting, dependency graph, Dependabot alerts, Dependabot security updates, secret scanning, and push protection enabled where GitHub supports them.
+- Non-provider secret patterns and validity checks enabled only when the organization has GitHub Secret Protection; repository API requests cannot enable these features on an unsupported plan.
 - Squash merge enabled; merge commits disabled; rebase merge optional.
 - Head branches deleted automatically after merge.
 - Default branch named `main`.
-- Default workflow permissions set to read-only; each dedicated package release workflow grants only `contents: read` and `packages: write`.
+- Default workflow permissions set to read-only; each dedicated package release workflow grants `contents: read`, `packages: write`, and the short-lived `id-token`, `attestations`, and `artifact-metadata` write permissions required for signed public release evidence.
 - A protected `github-packages` environment configured for package publication, with deployment branches restricted to the protected `main` branch.
 - A tag-creation ruleset blocks creation of package tags matching `v*` and central plan tags matching `release-plan/v*`, with a bypass limited to the intended release operator or release App.
 - A separate immutable-tag ruleset blocks updates and deletions for the same patterns with no bypass. Do not combine creation with update/deletion restrictions in one ruleset: a creation bypass would otherwise also permit moving or deleting a release tag.
@@ -90,3 +91,17 @@ Use only explicit repository and branch/tag refspecs during bootstrap. Never use
 If a package workflow fails before the registry write, fix the source or release machinery with a new reviewed plan; never move or replace an existing protected plan/package tag. If the publish result is ambiguous, query the exact package version and compare registry integrity. Rerun when it is absent or identical; stop when it differs. Never reuse a published version or move its tag. A bad public artifact is repaired with a new patch version because public visibility cannot be reversed. The central release remains blocked until the published consumer passes for the complete plan.
 
 The organization profile repository is not versioned as `0.1.0`.
+
+## Ongoing patch releases
+
+After the initial release, package versions remain independent. A release plan records the complete compatible package set, while only changed packages receive new package tags, registry versions, and GitHub Releases. Unchanged packages retain their existing immutable tags and versions in the new plan.
+
+Before creating a plan, every package must pass its local check with the exact toolchain in its lockfile. Public package entrypoints and generated declarations are recorded in `api-surface.json`. An initial snapshot does not force a version change; later public API changes require at least the next minor version before `1.0.0` and the next major version after `1.0.0`. This conservative rule deliberately treats every public surface change as potentially breaking.
+
+Package pull requests run dependency review and CodeQL in addition to the package check. Dependabot proposes npm and GitHub Actions updates on a bounded weekly schedule. These checks complement, but do not replace, code review and release-plan integrity verification.
+
+For release plans containing `scripts/prepare-package-release-evidence.js`, each package workflow creates one exact tarball, verifies its SHA-512 integrity against the immutable plan, and publishes that same file. After registry integrity is confirmed, the workflow creates GitHub artifact attestations for build provenance and a CycloneDX SBOM, then retains the tarball and SBOM as workflow evidence for 90 days. Historical release plans remain rerunnable through the legacy publication path and do not claim attestations they did not create.
+
+The release operator still creates protected tags and GitHub Releases explicitly. Release automation must fail closed on a missing plan, moved tag, mismatched revision, changed tarball integrity, unexpected dependency shape, or registry conflict. No workflow may create, move, or delete an immutable release tag implicitly.
+
+Run `npm run release:preflight -- <release>` before and after each release phase. It validates the committed manifest, resolves every package tag to a full remote commit, checks GitHub Packages and GitHub Release presence, and confirms that the central plan and release tags cannot diverge. It is deliberately read-only: protected tag creation, workflow dispatch, and GitHub Release creation remain explicit operator actions.

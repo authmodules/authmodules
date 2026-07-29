@@ -22,6 +22,7 @@
     "ecosystem:check": "node scripts/check-ecosystem-repos.js",
     "release:prepare": "node scripts/write-release-manifest.js",
     "release:check": "node scripts/check-release-manifests.js",
+    "release:preflight": "node scripts/preflight-release.js",
     "coverage:check": "node scripts/check-coverage.js",
     "packed:check": "node scripts/check-packed-consumer.js",
     "lint": "node scripts/lint-workspace.js",
@@ -31,7 +32,8 @@
     "spec:sync": "node scripts/check-contract-spec-sync.js"
   },
   "devDependencies": {
+    "@babel/parser": "^8.0.4",
     "pg": "^8.22.0",
-    "typescript": "^5.9.0"
+    "typescript": "^7.0.2"
   }
 }

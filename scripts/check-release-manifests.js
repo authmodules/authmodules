@@ -35,7 +35,7 @@ for (const repository of repositories) {
   assert(typeof manifest.description === 'string' && manifest.description.length >= 24, `${repository} must have a useful description`)
   assert(manifest.license === 'MIT', `${repository} must declare the MIT license`)
   assert(Array.isArray(manifest.keywords) && manifest.keywords.length >= 4, `${repository} must declare at least four discovery keywords`)
-  assert(manifest.repository?.url === `https://github.com/authmodules/${repository}.git`, `${repository} repository URL is invalid`)
+  assert(manifest.repository?.url === `git+https://github.com/authmodules/${repository}.git`, `${repository} repository URL is invalid`)
   assert(manifest.homepage === `https://github.com/authmodules/${repository}#readme`, `${repository} homepage is invalid`)
   assert(manifest.bugs?.url === `https://github.com/authmodules/${repository}/issues`, `${repository} bugs URL is invalid`)
   assert(manifest.publishConfig?.registry === 'https://npm.pkg.github.com', `${repository} publish registry must be GitHub Packages`)
@@ -43,6 +43,17 @@ for (const repository of repositories) {
   assert(manifest.publishConfig?.provenance === undefined, `${repository} must not use npmjs provenance flags`)
   assert(manifest.scripts?.prepack === 'npm run build', `${repository} must build during prepack`)
   assert(manifest.scripts?.['pack:dry-run'] === 'npm pack --dry-run --ignore-scripts', `${repository} dry-run pack must ignore lifecycle scripts`)
+  assert(manifest.scripts?.['api:check'] === 'node scripts/check-package-api.js', `${repository} must verify its public API snapshot`)
+  assert(
+    manifest.scripts?.['package:check'] === 'publint && attw --pack --profile esm-only .',
+    `${repository} must validate its ESM package surface`
+  )
+  assert(manifest.devDependencies?.typescript === '^7.0.2', `${repository} must use TypeScript 7.0.2`)
+  assert(manifest.devDependencies?.publint === '^0.3.22', `${repository} must use the audited publint release`)
+  assert(
+    manifest.devDependencies?.['@arethetypeswrong/cli'] === '^0.18.5',
+    `${repository} must use the audited package type analyzer`
+  )
   assertToolchain(manifest, lock, repository)
   if (repository === 'contracts') {
     assert(manifest.engines === undefined, 'contracts must not impose a runtime Node.js engine')
@@ -69,6 +80,8 @@ for (const repository of repositories) {
   )
   assertActionMajor(releaseWorkflow, 'actions/checkout', 7, `${repository} release`)
   assertActionMajor(releaseWorkflow, 'actions/setup-node', 7, `${repository} release`)
+  assertActionMajor(releaseWorkflow, 'actions/attest', 4, `${repository} release`)
+  assertActionMajor(releaseWorkflow, 'actions/upload-artifact', 7, `${repository} release`)
   assertCheckoutCredentialsDisabled(releaseWorkflow, `${repository} release`)
   assert(releaseWorkflow.includes('workflow_dispatch:'), `${repository} release must be explicitly dispatched`)
   assert(
@@ -112,24 +125,62 @@ for (const repository of repositories) {
   )
   assert(releaseWorkflow.includes('packages: write'), `${repository} release must request package write permission`)
   assert(releaseWorkflow.includes('contents: read'), `${repository} release must keep source permission read-only`)
+  assert(releaseWorkflow.includes('id-token: write'), `${repository} release must request an ephemeral signing identity`)
+  assert(releaseWorkflow.includes('attestations: write'), `${repository} release must persist signed attestations`)
+  assert(releaseWorkflow.includes('artifact-metadata: write'), `${repository} release must record artifact metadata`)
   assert(releaseWorkflow.includes('registry-url: https://npm.pkg.github.com'), `${repository} release must configure GitHub Packages`)
   assert(releaseWorkflow.includes("scope: '@authmodules'"), `${repository} release must configure the package scope`)
   assert(releaseWorkflow.includes('NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}'), `${repository} release must use the repository token`)
   assert(!releaseWorkflow.includes('NPM_TOKEN'), `${repository} release must not require an npmjs token`)
-  assert(!releaseWorkflow.includes('id-token: write'), `${repository} release must not request npmjs provenance permission`)
   assert(!releaseWorkflow.includes('--provenance'), `${repository} release must not use npmjs provenance`)
+  assert(
+    releaseWorkflow.includes("if: hashFiles('release-plan/scripts/prepare-package-release-evidence.js') != ''")
+      && releaseWorkflow.includes('run: node scripts/prepare-package-release-evidence.js')
+      && releaseWorkflow.includes('AUTHMODULES_EVIDENCE_DIRECTORY: ${{ runner.temp }}/release-evidence'),
+    `${repository} release must prepare exact future-release evidence without breaking historical plans`
+  )
   assert(
     releaseWorkflow.includes('run: node scripts/resolve-package-publication.js')
       && releaseWorkflow.includes('AUTHMODULES_PUBLICATION_MODE: resolve')
       && releaseWorkflow.includes('AUTHMODULES_PUBLICATION_MODE: verify')
-      && releaseWorkflow.match(/AUTHMODULES_EXPECTED_INTEGRITY: \$\{\{ steps\.release\.outputs\.package_integrity \}\}/g)?.length === 2,
+      && releaseWorkflow.match(/AUTHMODULES_EXPECTED_INTEGRITY: \$\{\{ steps\.release\.outputs\.package_integrity \}\}/g)?.length === 3,
     `${repository} release must resolve and verify immutable registry integrity`
   )
   assert(
-    releaseWorkflow.includes("if: steps.publication.outputs.publish == 'true'")
-      && releaseWorkflow.includes('npm publish --ignore-scripts'),
-    `${repository} release must publish only when the exact version is absent`
+    releaseWorkflow.includes("if: steps.publication.outputs.publish == 'true' && steps.evidence.outputs.package_tarball != ''")
+      && releaseWorkflow.includes('npm publish "${{ steps.evidence.outputs.package_tarball }}" --ignore-scripts')
+      && releaseWorkflow.includes("if: steps.publication.outputs.publish == 'true' && steps.evidence.outputs.package_tarball == ''")
+      && releaseWorkflow.includes('run: npm publish --ignore-scripts'),
+    `${repository} release must publish the exact evidence tarball and preserve historical reruns`
   )
+
+  const codeqlWorkflow = await readFile(
+    new URL(`${repository}/.github/workflows/codeql.yml`, workspaceRoot),
+    'utf8'
+  )
+  assertActionMajor(codeqlWorkflow, 'actions/checkout', 7, `${repository} CodeQL`)
+  assertActionMajor(codeqlWorkflow, 'github/codeql-action/init', 4, `${repository} CodeQL`)
+  assertActionMajor(codeqlWorkflow, 'github/codeql-action/analyze', 4, `${repository} CodeQL`)
+  assert(codeqlWorkflow.includes('build-mode: none'), `${repository} CodeQL must use no-build analysis`)
+
+  const dependencyReviewWorkflow = await readFile(
+    new URL(`${repository}/.github/workflows/dependency-review.yml`, workspaceRoot),
+    'utf8'
+  )
+  assertActionMajor(dependencyReviewWorkflow, 'actions/checkout', 7, `${repository} dependency review`)
+  assertActionMajor(
+    dependencyReviewWorkflow,
+    'actions/dependency-review-action',
+    5,
+    `${repository} dependency review`
+  )
+
+  const dependabot = await readFile(
+    new URL(`${repository}/.github/dependabot.yml`, workspaceRoot),
+    'utf8'
+  )
+  assert(dependabot.includes('package-ecosystem: npm'), `${repository} Dependabot must update npm dependencies`)
+  assert(dependabot.includes('package-ecosystem: github-actions'), `${repository} Dependabot must update Actions`)
 
   if (repository === 'contracts') continue
 
@@ -160,11 +211,37 @@ for (const repository of ['authmodules', '.github']) {
   const workflow = await readFile(new URL(`${repository}/.github/workflows/check.yml`, workspaceRoot), 'utf8')
   assertActionMajor(workflow, 'actions/checkout', 7, repository)
   assertCheckoutCredentialsDisabled(workflow, repository)
+  const dependencyReviewWorkflow = await readFile(
+    new URL(`${repository}/.github/workflows/dependency-review.yml`, workspaceRoot),
+    'utf8'
+  )
+  assertActionMajor(dependencyReviewWorkflow, 'actions/checkout', 7, `${repository} dependency review`)
+  assertActionMajor(
+    dependencyReviewWorkflow,
+    'actions/dependency-review-action',
+    5,
+    `${repository} dependency review`
+  )
+  const dependabot = await readFile(
+    new URL(`${repository}/.github/dependabot.yml`, workspaceRoot),
+    'utf8'
+  )
+  assert(dependabot.includes('package-ecosystem: github-actions'), `${repository} Dependabot must update Actions`)
   if (repository === 'authmodules') {
     const manifest = await readJson(new URL(`${repository}/package.json`, workspaceRoot))
     const lock = await readJson(new URL(`${repository}/package-lock.json`, workspaceRoot))
     assertLockRootMatchesManifest(manifest, lock, repository)
     assertToolchain(manifest, lock, repository)
+    assert(manifest.devDependencies?.typescript === '^7.0.2', `${repository} must use TypeScript 7.0.2`)
+    assert(manifest.devDependencies?.['@babel/parser'] === '^8.0.4', `${repository} must use the audited AST parser`)
+    assert(dependabot.includes('package-ecosystem: npm'), `${repository} Dependabot must update npm dependencies`)
+    const codeqlWorkflow = await readFile(
+      new URL(`${repository}/.github/workflows/codeql.yml`, workspaceRoot),
+      'utf8'
+    )
+    assertActionMajor(codeqlWorkflow, 'actions/checkout', 7, `${repository} CodeQL`)
+    assertActionMajor(codeqlWorkflow, 'github/codeql-action/init', 4, `${repository} CodeQL`)
+    assertActionMajor(codeqlWorkflow, 'github/codeql-action/analyze', 4, `${repository} CodeQL`)
     assertActionMajor(workflow, 'actions/setup-node', 7, repository)
     assert(
       workflow.includes('run: npm install --global npm@11.16.0'),
@@ -307,12 +384,12 @@ function assertLockRootMatchesManifest(manifest, lock, repository) {
   assert(lock.name === manifest.name, `${repository} lockfile name must match package.json`)
   assert(lock.version === manifest.version, `${repository} lockfile version must match package.json`)
   assert(root && typeof root === 'object', `${repository} lockfile must contain a root package record`)
+  // npm validates devEngines from package.json but does not serialize it into lockfile v3.
   for (const field of [
     'name',
     'version',
     'license',
     'engines',
-    'devEngines',
     'dependencies',
     'devDependencies',
     'optionalDependencies',

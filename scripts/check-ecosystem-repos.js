@@ -1,13 +1,33 @@
 import { access, readFile, readdir } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import ts from 'typescript'
+import { parse } from '@babel/parser'
 import { packageRepositories } from './release-manifest.js'
 
 const requiredRepositories = packageRepositories
 
 const root = new URL('../..', import.meta.url)
 const rootPath = fileURLToPath(root)
+const canonicalApiChecker = await readFile(
+  new URL('authmodules/scripts/check-package-api.js', root),
+  'utf8'
+)
+const canonicalCodeql = await readFile(
+  new URL('authmodules/templates/codeql.yml', root),
+  'utf8'
+)
+const canonicalDependencyReview = await readFile(
+  new URL('authmodules/templates/dependency-review.yml', root),
+  'utf8'
+)
+const canonicalDependabot = await readFile(
+  new URL('authmodules/templates/dependabot.yml', root),
+  'utf8'
+)
+const canonicalRelease = await readFile(
+  new URL('authmodules/templates/release.yml', root),
+  'utf8'
+)
 
 await assertNoWorkspaceArtifacts(root)
 
@@ -32,6 +52,33 @@ for (const repository of requiredRepositories) {
   if (manifest.scripts?.prepack !== 'npm run build') {
     throw new Error(`${repository} must build before pack`)
   }
+  const apiChecker = await readFile(
+    new URL(`${repository}/scripts/check-package-api.js`, root),
+    'utf8'
+  )
+  if (apiChecker !== canonicalApiChecker) {
+    throw new Error(`${repository} public API checker must match the central audited implementation`)
+  }
+  await assertFileMatches(
+    `${repository}/.github/workflows/codeql.yml`,
+    canonicalCodeql,
+    `${repository} CodeQL workflow`
+  )
+  await assertFileMatches(
+    `${repository}/.github/workflows/dependency-review.yml`,
+    canonicalDependencyReview,
+    `${repository} dependency review workflow`
+  )
+  await assertFileMatches(
+    `${repository}/.github/dependabot.yml`,
+    canonicalDependabot,
+    `${repository} Dependabot configuration`
+  )
+  await assertFileMatches(
+    `${repository}/.github/workflows/release.yml`,
+    canonicalRelease.replaceAll('__PACKAGE__', repository),
+    `${repository} release workflow`
+  )
   await assertNoAnyTypes(repository)
   if (repository !== 'contracts') {
     await assertRuntimeTypeScriptPackage(repository, manifest)
@@ -48,24 +95,19 @@ async function assertNoAnyTypes(repository) {
       throw new Error(`${path.relative(rootPath, filePath)} must be generated from TypeScript source`)
     }
     const sourceText = await readFile(fileUrl, 'utf8')
-    const sourceFile = ts.createSourceFile(filePath, sourceText, ts.ScriptTarget.Latest, true)
-    assertImportsFirst(sourceFile, fileUrl)
-    let containsAny = false
-    const visit = (node) => {
-      if (node.kind === ts.SyntaxKind.AnyKeyword) containsAny = true
-      if (!containsAny) ts.forEachChild(node, visit)
-    }
-    visit(sourceFile)
-    if (containsAny) {
+    const program = parseTypeScript(sourceText, filePath)
+    assertImportsFirst(program.body, fileUrl)
+    if (containsNodeType(program, 'TSAnyKeyword')) {
       throw new Error(`${path.relative(rootPath, filePath)} must not use the any type`)
     }
   }
 }
 
-function assertImportsFirst(sourceFile, fileUrl) {
+function assertImportsFirst(statements, fileUrl) {
   let sourceDeclarationSeen = false
-  for (const statement of sourceFile.statements) {
-    const isImport = ts.isImportDeclaration(statement) || ts.isImportEqualsDeclaration(statement)
+  for (const statement of statements) {
+    const isImport = statement.type === 'ImportDeclaration'
+      || statement.type === 'TSImportEqualsDeclaration'
     if (isImport && sourceDeclarationSeen) {
       throw new Error(`${path.relative(rootPath, fileURLToPath(fileUrl))} must keep imports before declarations`)
     }
@@ -129,22 +171,16 @@ async function assertRuntimeTypeScriptPackage(repository, manifest) {
   await access(new URL(`${repository}/.github/workflows/check.yml`, root))
 
   const entrypoint = await readFile(entrypointUrl, 'utf8')
-  const entrypointSource = ts.createSourceFile(
-    fileURLToPath(entrypointUrl),
-    entrypoint,
-    ts.ScriptTarget.Latest,
-    true
-  )
-  const explicitReexports = entrypointSource.statements.length > 0
-    && entrypointSource.statements.every((statement) => (
-      ts.isExportDeclaration(statement)
-      && statement.exportClause !== undefined
-      && ts.isNamedExports(statement.exportClause)
-      && statement.exportClause.elements.length > 0
-      && statement.moduleSpecifier !== undefined
-      && ts.isStringLiteral(statement.moduleSpecifier)
-      && statement.moduleSpecifier.text.startsWith('./')
-      && statement.moduleSpecifier.text.endsWith('.ts')
+  const entrypointProgram = parseTypeScript(entrypoint, fileURLToPath(entrypointUrl))
+  const explicitReexports = entrypointProgram.body.length > 0
+    && entrypointProgram.body.every((statement) => (
+      statement.type === 'ExportNamedDeclaration'
+      && statement.declaration === null
+      && statement.specifiers.length > 0
+      && statement.specifiers.every((specifier) => specifier.type === 'ExportSpecifier')
+      && statement.source?.type === 'StringLiteral'
+      && statement.source.value.startsWith('./')
+      && statement.source.value.endsWith('.ts')
     ))
   if (!explicitReexports) {
     throw new Error(`${repository} src/index.ts must contain only explicit TypeScript re-exports`)
@@ -185,4 +221,42 @@ async function assertRuntimeTypeScriptPackage(repository, manifest) {
   if (tsconfig.compilerOptions?.rewriteRelativeImportExtensions !== true) {
     throw new Error(`${repository} must rewrite source TypeScript specifiers for ESM output`)
   }
+  if (tsconfig.compilerOptions?.rootDir !== './src') {
+    throw new Error(`${repository} must declare the TypeScript 7 source root explicitly`)
+  }
+}
+
+async function assertFileMatches(relativePath, expected, label) {
+  const actual = await readFile(new URL(relativePath, root), 'utf8')
+  if (actual !== expected) {
+    throw new Error(`${label} must match the central audited template`)
+  }
+}
+
+function parseTypeScript(sourceText, filePath) {
+  return parse(sourceText, {
+    sourceFilename: filePath,
+    sourceType: 'module',
+    plugins: [[
+      'typescript',
+      { dts: filePath.endsWith('.d.ts') }
+    ]]
+  }).program
+}
+
+function containsNodeType(rootNode, expectedType) {
+  const queue = [rootNode]
+  while (queue.length > 0) {
+    const value = queue.pop()
+    if (value === null || typeof value !== 'object') continue
+    if (value.type === expectedType) return true
+    for (const child of Object.values(value)) {
+      if (Array.isArray(child)) {
+        queue.push(...child)
+      } else if (child !== null && typeof child === 'object') {
+        queue.push(child)
+      }
+    }
+  }
+  return false
 }
