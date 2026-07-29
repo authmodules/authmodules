@@ -12,6 +12,7 @@ const expectedDevEngine = {
   onFail: 'error'
 }
 const centralManifest = await readJson(new URL('authmodules/package.json', workspaceRoot))
+const centralReadme = await readFile(new URL('authmodules/README.md', workspaceRoot), 'utf8')
 assert(isExactVersion(centralManifest.version), 'central package version must be an exact release identifier')
 const activeRelease = parseReleaseManifest(
   await readJson(new URL(`authmodules/releases/${centralManifest.version}.json`, workspaceRoot)),
@@ -24,6 +25,10 @@ for (const repository of repositories) {
   const expectedName = `@authmodules/${repository}`
   const releaseEntry = activeRelease.packages[repository]
 
+  assert(
+    centralReadme.includes(`](/authmodules/${repository})`),
+    `${repository} must have a repository-absolute link in the central README`
+  )
   assert(manifest.name === expectedName, `${repository} package name must be ${expectedName}`)
   assert(manifest.version === releaseEntry.version, `${repository} package version must match the active release plan`)
   assert(
@@ -124,8 +129,14 @@ for (const repository of repositories) {
   )
   assert(
     releaseWorkflow.includes('run: node scripts/verify-package-release.js')
-      && releaseWorkflow.includes(`AUTHMODULES_PACKAGE_DIRECTORY: ../${repository}`),
+      && releaseWorkflow.includes('path: package-release')
+      && releaseWorkflow.includes('AUTHMODULES_PACKAGE_DIRECTORY: ../package-release'),
     `${repository} release must verify the exact planned source revision`
+  )
+  assert(
+    releaseWorkflow.includes("image: ${{ github.repository == 'authmodules/store-postgres' && 'postgres:18-alpine' || '' }}")
+      && releaseWorkflow.includes("AUTHMODULES_POSTGRES_URL: ${{ github.repository == 'authmodules/store-postgres' && 'postgres://authmodules:authmodules@127.0.0.1:5432/authmodules' || '' }}"),
+    `${repository} release must run store-postgres integration tests against PostgreSQL 18`
   )
   assert(releaseWorkflow.includes('packages: write'), `${repository} release must request package write permission`)
   assert(releaseWorkflow.includes('contents: read'), `${repository} release must keep source permission read-only`)

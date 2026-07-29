@@ -23,6 +23,8 @@ if (process.argv.length > 3 || (process.argv.length === 3 && !write)) {
   throw new Error('Usage: node scripts/check-package-api.js [--write]')
 }
 
+assertDeclarationScanner()
+
 const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
 const snapshot = await createSnapshot(manifest)
 const serializedSnapshot = `${JSON.stringify(snapshot, null, 2)}\n`
@@ -125,12 +127,111 @@ async function collectReachableDeclarationFiles(entrypoints) {
 
 function collectRelativeDeclarationSpecifiers(sourceText) {
   const specifiers = new Set()
-  const modulePattern = /\b(?:from|import)\s*(?:\(\s*)?['"](\.{1,2}\/[^'"]+)['"]/g
-  const referencePattern = /<reference\s+path=['"](\.{1,2}\/[^'"]+)['"]/g
-  for (const pattern of [modulePattern, referencePattern]) {
-    for (const match of sourceText.matchAll(pattern)) specifiers.add(match[1])
+  const referencePattern = /^\s*\/\/\/\s*<reference\s+path=['"](\.{1,2}\/[^'"]+)['"]/gm
+  for (const match of sourceText.matchAll(referencePattern)) specifiers.add(match[1])
+
+  const tokens = tokenizeDeclaration(sourceText)
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index]
+    if (token.type !== 'identifier') continue
+    if (token.value === 'from' && tokens[index + 1]?.type === 'string') {
+      addRelativeSpecifier(specifiers, tokens[index + 1].value)
+    }
+    if (
+      (token.value === 'import' || token.value === 'require')
+      && tokens[index + 1]?.value === '('
+      && tokens[index + 2]?.type === 'string'
+    ) {
+      addRelativeSpecifier(specifiers, tokens[index + 2].value)
+    }
+    if (token.value === 'import' && tokens[index + 1]?.type === 'string') {
+      addRelativeSpecifier(specifiers, tokens[index + 1].value)
+    }
   }
   return specifiers
+}
+
+function tokenizeDeclaration(sourceText) {
+  const tokens = []
+  let index = 0
+
+  while (index < sourceText.length) {
+    const character = sourceText[index]
+    const next = sourceText[index + 1]
+    if (/\s/.test(character)) {
+      index += 1
+      continue
+    }
+    if (character === '/' && next === '/') {
+      index = sourceText.indexOf('\n', index + 2)
+      if (index === -1) break
+      continue
+    }
+    if (character === '/' && next === '*') {
+      const end = sourceText.indexOf('*/', index + 2)
+      if (end === -1) throw new Error('Generated declaration contains an unterminated comment')
+      index = end + 2
+      continue
+    }
+    if (character === "'" || character === '"') {
+      const stringToken = readStringToken(sourceText, index, character)
+      tokens.push({ type: 'string', value: stringToken.value })
+      index = stringToken.nextIndex
+      continue
+    }
+    if (character === '`') {
+      index = readStringToken(sourceText, index, character).nextIndex
+      continue
+    }
+    if (/[A-Za-z_$]/.test(character)) {
+      let end = index + 1
+      while (/[A-Za-z0-9_$]/.test(sourceText[end] ?? '')) end += 1
+      tokens.push({ type: 'identifier', value: sourceText.slice(index, end) })
+      index = end
+      continue
+    }
+    tokens.push({ type: 'punctuation', value: character })
+    index += 1
+  }
+
+  return tokens
+}
+
+function readStringToken(sourceText, startIndex, quote) {
+  let value = ''
+  let index = startIndex + 1
+  while (index < sourceText.length) {
+    const character = sourceText[index]
+    if (character === quote) return { value, nextIndex: index + 1 }
+    if (character === '\\') {
+      if (index + 1 >= sourceText.length) break
+      value += sourceText[index + 1]
+      index += 2
+      continue
+    }
+    value += character
+    index += 1
+  }
+  throw new Error('Generated declaration contains an unterminated string')
+}
+
+function addRelativeSpecifier(specifiers, value) {
+  if (value.startsWith('./') || value.startsWith('../')) specifiers.add(value)
+}
+
+function assertDeclarationScanner() {
+  const sourceText = `
+    /** import './comment-only.js' and from './documentation-only.js' */
+    /// <reference path="./reference.d.ts" />
+    import type { PublicType } from './public.ts'
+    export type LazyType = import('./lazy.js').PublicType
+    type DocumentationLiteral = "from './string-only.js'"
+  `
+  const actual = [...collectRelativeDeclarationSpecifiers(sourceText)].sort()
+  const expected = ['./lazy.js', './public.ts', './reference.d.ts']
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    throw new Error('Declaration dependency scanner failed its internal invariant')
+  }
 }
 
 async function resolveRelativeDeclaration(importer, specifier) {

@@ -25,6 +25,20 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: github-packages
+    services:
+      postgres:
+        image: ${{ github.repository == 'authmodules/store-postgres' && 'postgres:18-alpine' || '' }}
+        env:
+          POSTGRES_DB: authmodules
+          POSTGRES_PASSWORD: authmodules
+          POSTGRES_USER: authmodules
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U authmodules -d authmodules"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - name: Checkout immutable release plan
         uses: actions/checkout@v7
@@ -46,7 +60,7 @@ jobs:
         with:
           persist-credentials: false
           ref: refs/tags/${{ steps.release.outputs.package_tag }}
-          path: __PACKAGE__
+          path: package-release
       - name: Checkout exact contracts release
         uses: actions/checkout@v7
         with:
@@ -59,7 +73,7 @@ jobs:
         working-directory: release-plan
         env:
           AUTHMODULES_CONTRACTS_DIRECTORY: ../contracts
-          AUTHMODULES_PACKAGE_DIRECTORY: ../__PACKAGE__
+          AUTHMODULES_PACKAGE_DIRECTORY: ../package-release
           AUTHMODULES_PACKAGE_KEY: __PACKAGE__
           AUTHMODULES_PACKAGE_REPOSITORY: ${{ github.repository }}
           AUTHMODULES_RELEASE_ID: ${{ inputs.release_id }}
@@ -68,17 +82,19 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: __PACKAGE__/package-lock.json
+          cache-dependency-path: package-release/package-lock.json
           registry-url: https://npm.pkg.github.com
           scope: '@authmodules'
       - name: Install exact npm
         run: npm install --global npm@11.16.0
       - name: Install package dependencies
         run: npm ci --omit=peer --legacy-peer-deps
-        working-directory: __PACKAGE__
+        working-directory: package-release
       - name: Check package
         run: npm run check
-        working-directory: __PACKAGE__
+        working-directory: package-release
+        env:
+          AUTHMODULES_POSTGRES_URL: ${{ github.repository == 'authmodules/store-postgres' && 'postgres://authmodules:authmodules@127.0.0.1:5432/authmodules' || '' }}
       - name: Prepare exact tarball and SBOM
         if: hashFiles('release-plan/scripts/prepare-package-release-evidence.js') != ''
         id: evidence
@@ -88,13 +104,13 @@ jobs:
           AUTHMODULES_CONTRACTS_DIRECTORY: ../contracts
           AUTHMODULES_EVIDENCE_DIRECTORY: ${{ runner.temp }}/release-evidence
           AUTHMODULES_EXPECTED_INTEGRITY: ${{ steps.release.outputs.package_integrity }}
-          AUTHMODULES_PACKAGE_DIRECTORY: ../__PACKAGE__
+          AUTHMODULES_PACKAGE_DIRECTORY: ../package-release
       - name: Resolve registry publication state
         id: publication
         run: node scripts/resolve-package-publication.js
         working-directory: release-plan
         env:
-          AUTHMODULES_PACKAGE_DIRECTORY: ../__PACKAGE__
+          AUTHMODULES_PACKAGE_DIRECTORY: ../package-release
           AUTHMODULES_EXPECTED_INTEGRITY: ${{ steps.release.outputs.package_integrity }}
           AUTHMODULES_PUBLICATION_MODE: resolve
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -106,14 +122,14 @@ jobs:
       - name: Publish legacy release to GitHub Packages
         if: steps.publication.outputs.publish == 'true' && steps.evidence.outputs.package_tarball == ''
         run: npm publish --ignore-scripts
-        working-directory: __PACKAGE__
+        working-directory: package-release
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Verify registry package integrity
         run: node scripts/resolve-package-publication.js
         working-directory: release-plan
         env:
-          AUTHMODULES_PACKAGE_DIRECTORY: ../__PACKAGE__
+          AUTHMODULES_PACKAGE_DIRECTORY: ../package-release
           AUTHMODULES_EXPECTED_INTEGRITY: ${{ steps.release.outputs.package_integrity }}
           AUTHMODULES_PUBLICATION_MODE: verify
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

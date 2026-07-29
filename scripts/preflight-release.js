@@ -13,6 +13,17 @@ if (process.argv.length !== 3 || !isExactVersion(release)) {
 
 const manifestPath = path.resolve(`releases/${release}.json`)
 const manifest = parseReleaseManifest(JSON.parse(await readFile(manifestPath, 'utf8')), release)
+const planRef = `release-plan/v${release}`
+const centralTag = `v${release}`
+const planRevision = await resolveCommit('authmodules/authmodules', planRef)
+
+if (planRevision !== undefined) {
+  const planManifest = await resolveReleasePlanManifest(release, planRef)
+  if (!jsonEqual(planManifest, manifest)) {
+    throw new Error(`${manifestPath} does not match the manifest at ${planRef}`)
+  }
+}
+
 const packageStatuses = await mapWithConcurrency(packageRepositories, 1, async (repository) => {
   const entry = manifest.packages[repository]
   const tagRevision = await resolveCommit(entry.repository, entry.tag)
@@ -36,9 +47,6 @@ const packageStatuses = await mapWithConcurrency(packageRepositories, 1, async (
   }
 })
 
-const planRef = `release-plan/v${release}`
-const centralTag = `v${release}`
-const planRevision = await resolveCommit('authmodules/authmodules', planRef)
 const centralTagRevision = await resolveCommit('authmodules/authmodules', centralTag)
 const centralRelease = await resolveGitHubRelease('authmodules/authmodules', centralTag)
 
@@ -74,10 +82,40 @@ async function resolveCommit(repository, ref) {
 }
 
 async function resolveGitHubRelease(repository, tag) {
-  return (await ghJson(
+  const response = await ghJson(
     ['api', `repos/${repository}/releases/tags/${encodeURIComponent(tag)}`],
     true
-  )) !== undefined
+  )
+  if (response === undefined) return false
+  if (response.tag_name !== tag || response.draft !== false || response.prerelease !== false) {
+    throw new Error(`${repository} ${tag} must be a published stable GitHub Release`)
+  }
+  return true
+}
+
+async function resolveReleasePlanManifest(expectedRelease, ref) {
+  const response = await ghJson([
+    'api',
+    '--method',
+    'GET',
+    `repos/authmodules/authmodules/contents/releases/${encodeURIComponent(expectedRelease)}.json`,
+    '-f',
+    `ref=${ref}`
+  ], false)
+  if (
+    response?.type !== 'file'
+    || response.encoding !== 'base64'
+    || typeof response.content !== 'string'
+    || !/^[A-Za-z0-9+/=\n]+$/.test(response.content)
+  ) {
+    throw new Error(`${ref} returned an invalid release manifest file`)
+  }
+  const decoded = Buffer.from(response.content.replaceAll('\n', ''), 'base64').toString('utf8')
+  try {
+    return parseReleaseManifest(JSON.parse(decoded), expectedRelease)
+  } catch (error) {
+    throw new Error(`${ref} release manifest is invalid: ${error.message}`)
+  }
 }
 
 async function resolvePackageVersions(packageName) {
@@ -112,11 +150,14 @@ async function ghJson(args, allowMissing) {
       )
       return JSON.parse(stdout)
     } catch (error) {
-      const diagnostic = `${error?.stdout ?? ''}\n${error?.stderr ?? ''}`
+      const diagnostic = `${error?.message ?? ''}\n${error?.stdout ?? ''}\n${error?.stderr ?? ''}`
       if (allowMissing && /(?:^|\s)HTTP 404(?:\s|$)|Not Found/.test(diagnostic)) {
         return undefined
       }
-      const transient = /EOF|ETIMEDOUT|ECONNRESET|HTTP (?:502|503|504)/.test(diagnostic)
+      const transient = error?.killed === true
+        || error?.signal === 'SIGTERM'
+        || error?.code === 'ETIMEDOUT'
+        || /timed out|EOF|ETIMEDOUT|ECONNRESET|HTTP (?:502|503|504)/i.test(diagnostic)
       if (transient && attempt < 3) {
         await new Promise((resolve) => setTimeout(resolve, 500 * attempt))
         continue
@@ -143,4 +184,18 @@ async function mapWithConcurrency(values, limit, operation) {
     () => worker()
   ))
   return results
+}
+
+function jsonEqual(left, right) {
+  return JSON.stringify(sortJson(left)) === JSON.stringify(sortJson(right))
+}
+
+function sortJson(value) {
+  if (Array.isArray(value)) return value.map(sortJson)
+  if (value === null || typeof value !== 'object') return value
+  return Object.fromEntries(
+    Object.entries(value)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => [key, sortJson(entry)])
+  )
 }
