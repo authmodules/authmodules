@@ -25,9 +25,8 @@ if (process.argv.length > 3 || (process.argv.length === 3 && !write)) {
   throw new Error('Usage: node scripts/check-package-api.js [--write]')
 }
 
-await assertDeclarationScanner()
-
 const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
+await assertDeclarationScanner(manifest)
 const snapshot = await createSnapshot(manifest)
 const serializedSnapshot = `${JSON.stringify(snapshot, null, 2)}\n`
 
@@ -52,7 +51,10 @@ async function createSnapshot(packageManifest) {
   }
 
   const publicTypeEntrypoints = await collectPublicTypeEntrypoints(packageManifest)
-  const declarationFiles = await collectReachableDeclarationFiles(publicTypeEntrypoints)
+  const declarationFiles = await collectReachableDeclarationFiles(
+    publicTypeEntrypoints,
+    packageManifest
+  )
   if (declarationFiles.length === 0) {
     throw new Error('No declarations are reachable from public package entrypoints')
   }
@@ -67,10 +69,13 @@ async function createSnapshot(packageManifest) {
       exports: packageManifest.exports ?? null
     },
     compatibility: {
-      engines: packageManifest.engines ?? null,
-      peerDependencies: packageManifest.peerDependencies ?? null,
-      peerDependenciesMeta: packageManifest.peerDependenciesMeta ?? null,
-      typesVersions: packageManifest.typesVersions ?? null
+      engines: canonicalizeUnorderedObject(packageManifest.engines ?? null),
+      peerDependencies: canonicalizeUnorderedObject(packageManifest.peerDependencies ?? null),
+      peerDependenciesMeta: canonicalizeUnorderedObject(
+        packageManifest.peerDependenciesMeta ?? null
+      ),
+      typesVersions: packageManifest.typesVersions ?? null,
+      ...collectOptionalCompatibilityFields(packageManifest)
     },
     declarations: await Promise.all(declarationFiles.map(async (filePath) => ({
       path: normalizePath(path.relative(packageRoot, filePath)),
@@ -84,20 +89,25 @@ async function createSnapshot(packageManifest) {
 async function collectPublicTypeEntrypoints(packageManifest) {
   const targets = new Set([packageManifest.types])
   collectDeclarationTargets(packageManifest.exports, targets)
+  collectTypesVersionsTargets(packageManifest.typesVersions, targets)
   const entrypoints = new Set()
 
   for (const target of targets) {
     if (!target.includes('*')) {
-      entrypoints.add(resolvePackageDeclaration(target))
+      entrypoints.add(await resolvePackageDeclarationEntrypoint(target))
       continue
     }
-    const pattern = resolvePackageDeclaration(target)
     let matched = false
-    for await (const relativePath of glob(normalizePath(path.relative(packageRoot, pattern)), {
-      cwd: packageRoot
-    })) {
-      entrypoints.add(resolvePackageDeclaration(`./${normalizePath(relativePath)}`))
-      matched = true
+    for (const targetPattern of declarationTargetPatterns(target)) {
+      const pattern = resolvePackageDeclaration(targetPattern)
+      for await (const relativePath of glob(
+        normalizePath(path.relative(packageRoot, pattern)),
+        { cwd: packageRoot }
+      )) {
+        if (!/\.d\.(?:c|m)?ts$/.test(relativePath)) continue
+        entrypoints.add(resolvePackageDeclaration(`./${normalizePath(relativePath)}`))
+        matched = true
+      }
     }
     if (!matched) {
       throw new Error(`Public declaration pattern did not match any files: ${target}`)
@@ -122,12 +132,41 @@ function collectDeclarationTargets(value, targets) {
   }
 }
 
+function collectTypesVersionsTargets(value, targets) {
+  if (typeof value === 'string') {
+    const packageTarget = value.startsWith('./') ? value : `./${value}`
+    targets.add(declarationTargetForExport(packageTarget) ?? packageTarget)
+    return
+  }
+  if (Array.isArray(value)) {
+    for (const entry of value) collectTypesVersionsTargets(entry, targets)
+    return
+  }
+  if (value !== null && typeof value === 'object') {
+    for (const entry of Object.values(value)) collectTypesVersionsTargets(entry, targets)
+  }
+}
+
 function declarationTargetForExport(target) {
   if (/\.d\.(?:c|m)?ts$/.test(target)) return target
   const extension = path.extname(target)
   const declarationExtension = declarationExtensions.get(extension)
   if (declarationExtension === undefined) return undefined
   return `${target.slice(0, -extension.length)}${declarationExtension}`
+}
+
+function declarationTargetPatterns(target) {
+  const declarationTarget = declarationTargetForExport(target)
+  if (declarationTarget !== undefined) return [declarationTarget]
+  return [
+    target,
+    `${target}.d.ts`,
+    `${target}.d.mts`,
+    `${target}.d.cts`,
+    `${target}/index.d.ts`,
+    `${target}/index.d.mts`,
+    `${target}/index.d.cts`
+  ]
 }
 
 function resolvePackageDeclaration(target) {
@@ -139,7 +178,21 @@ function resolvePackageDeclaration(target) {
   return resolved
 }
 
-async function collectReachableDeclarationFiles(entrypoints) {
+async function resolvePackageDeclarationEntrypoint(target) {
+  const unresolved = resolvePackageDeclaration(target)
+  for (const candidate of declarationCandidates(unresolved)) {
+    assertWithinPackage(candidate)
+    try {
+      await access(candidate)
+      return candidate
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error
+    }
+  }
+  throw new Error(`Public declaration target does not resolve to a declaration: ${target}`)
+}
+
+async function collectReachableDeclarationFiles(entrypoints, packageManifest) {
   const pending = [...entrypoints]
   const visited = new Set()
 
@@ -148,19 +201,23 @@ async function collectReachableDeclarationFiles(entrypoints) {
     if (visited.has(filePath)) continue
     const sourceText = await readFile(filePath, 'utf8')
     visited.add(filePath)
-    for (const specifier of collectRelativeDeclarationSpecifiers(sourceText)) {
-      pending.push(await resolveRelativeDeclaration(filePath, specifier))
+    for (const specifier of collectDeclarationSpecifiers(sourceText)) {
+      if (specifier.startsWith('#')) {
+        pending.push(...await resolvePackageImportDeclarations(packageManifest, specifier))
+      } else {
+        pending.push(await resolveRelativeDeclaration(filePath, specifier))
+      }
     }
   }
 
   return [...visited].sort((left, right) => left.localeCompare(right))
 }
 
-function collectRelativeDeclarationSpecifiers(sourceText) {
+function collectDeclarationSpecifiers(sourceText) {
   const specifiers = new Set()
-  const referencePattern = /^\s*\/\/\/\s*<reference\s+path=['"]([^'"]+)['"]/gm
-  for (const match of sourceText.matchAll(referencePattern)) {
-    addRelativeReference(specifiers, match[1])
+  for (const directive of collectReferenceDirectives(sourceText)) {
+    const pathAttribute = directive.attributes.find((attribute) => attribute.name === 'path')
+    if (pathAttribute !== undefined) addRelativeReference(specifiers, pathAttribute.value)
   }
 
   collectSpecifiersFromTokens(tokenizeDeclaration(sourceText), specifiers)
@@ -178,17 +235,17 @@ function collectSpecifiersFromTokens(tokens, specifiers) {
     }
     if (token.type !== 'identifier') continue
     if (token.value === 'from' && tokens[index + 1]?.type === 'string') {
-      addRelativeSpecifier(specifiers, tokens[index + 1].value)
+      addDeclarationSpecifier(specifiers, tokens[index + 1].value)
     }
     if (
       (token.value === 'import' || token.value === 'require')
       && tokens[index + 1]?.value === '('
       && tokens[index + 2]?.type === 'string'
     ) {
-      addRelativeSpecifier(specifiers, tokens[index + 2].value)
+      addDeclarationSpecifier(specifiers, tokens[index + 2].value)
     }
     if (token.value === 'import' && tokens[index + 1]?.type === 'string') {
-      addRelativeSpecifier(specifiers, tokens[index + 1].value)
+      addDeclarationSpecifier(specifiers, tokens[index + 1].value)
     }
   }
 }
@@ -212,6 +269,10 @@ function tokenizeDeclaration(sourceText) {
     if (character === '/' && next === '*') {
       const end = sourceText.indexOf('*/', index + 2)
       if (end === -1) throw new Error('Generated declaration contains an unterminated comment')
+      const semanticTags = collectSemanticJsDocTags(sourceText.slice(index, end + 2))
+      if (semanticTags.length > 0) {
+        tokens.push({ type: 'semantic-jsdoc', tags: semanticTags })
+      }
       index = end + 2
       continue
     }
@@ -399,27 +460,33 @@ function readHexEscape(sourceText, startIndex, prefixLength, digitsLength) {
   }
 }
 
-function addRelativeSpecifier(specifiers, value) {
-  if (value.startsWith('./') || value.startsWith('../')) specifiers.add(value)
+function addDeclarationSpecifier(specifiers, value) {
+  if (value.startsWith('./') || value.startsWith('../') || value.startsWith('#')) {
+    specifiers.add(value)
+  }
 }
 
 function addRelativeReference(specifiers, value) {
   if (!path.isAbsolute(value) && !/^[A-Za-z]:[\\/]/.test(value)) specifiers.add(value)
 }
 
-async function assertDeclarationScanner() {
+async function assertDeclarationScanner(packageManifest) {
   const sourceText = [
     "/** import './comment-only.js' and from './documentation-only.js' */",
     '/// <reference path="reference.d.ts" />',
+    '/// <reference types="node" resolution-mode="import" preserve="true" />',
+    '/// <reference no-default-lib="true" />',
     "import type { PublicType } from './public.tsx'",
     "export type LazyType = import('./lazy.js').PublicType",
     "export type EscapedType = import('./escaped\\u002ejs').PublicType",
     "export type TemplateType = `prefix${import('./template.js').PublicType}`",
+    "export type PackageImportType = import('#model').PublicType",
     'type DocumentationLiteral = "from \'./string-only.js\'"',
     "type TemplateDocumentation = `import('./template-string-only.js')`"
   ].join('\n')
-  const actual = [...collectRelativeDeclarationSpecifiers(sourceText)].sort()
+  const actual = [...collectDeclarationSpecifiers(sourceText)].sort()
   const expected = [
+    '#model',
     './escaped.js',
     './lazy.js',
     './public.tsx',
@@ -436,22 +503,59 @@ async function assertDeclarationScanner() {
   ) {
     throw new Error('Declaration export target mapping failed its internal invariant')
   }
+  const mappedImportDeclarations = await resolvePackageImportDeclarations({
+    imports: {
+      '#model': packageManifest.types
+    }
+  }, '#model')
+  if (
+    mappedImportDeclarations.length !== 1
+    || mappedImportDeclarations[0] !== resolvePackageDeclaration(packageManifest.types)
+  ) {
+    throw new Error('Package import declaration mapping failed its internal invariant')
+  }
+  const entrypointDirectory = path.posix.dirname(packageManifest.types)
+  const typesVersionsEntrypoints = await collectPublicTypeEntrypoints({
+    types: packageManifest.types,
+    typesVersions: {
+      '*': {
+        '*': [`${entrypointDirectory.replace(/^\.\//, '')}/*`]
+      }
+    }
+  })
+  if (!typesVersionsEntrypoints.includes(resolvePackageDeclaration(packageManifest.types))) {
+    throw new Error('typesVersions declaration discovery failed its internal invariant')
+  }
   const changedDocumentation = sourceText.replace('comment-only.js', 'different-comment.js')
   if (declarationFingerprint(sourceText) !== declarationFingerprint(changedDocumentation)) {
     throw new Error('Declaration fingerprint must ignore non-semantic comments')
+  }
+  const deprecatedSource = sourceText.replace(
+    'export type LazyType',
+    '/** @deprecated */\nexport type LazyType'
+  )
+  if (declarationFingerprint(sourceText) === declarationFingerprint(deprecatedSource)) {
+    throw new Error('Declaration fingerprint must retain semantic JSDoc tags')
+  }
+  const changedResolutionMode = sourceText.replace(
+    'resolution-mode="import"',
+    'resolution-mode="require"'
+  )
+  if (declarationFingerprint(sourceText) === declarationFingerprint(changedResolutionMode)) {
+    throw new Error('Declaration fingerprint must retain reference directive attributes')
+  }
+  if (
+    JSON.stringify(canonicalizeUnorderedObject({ z: { b: 1, a: 2 }, a: 3 }))
+      !== '{"a":3,"z":{"a":2,"b":1}}'
+  ) {
+    throw new Error('Unordered manifest canonicalization failed its internal invariant')
   }
 }
 
 async function resolveRelativeDeclaration(importer, specifier) {
   const unresolved = path.resolve(path.dirname(importer), specifier)
   assertWithinPackage(unresolved)
-  const extension = path.extname(unresolved)
-  const declarationExtension = declarationExtensions.get(extension)
-  const candidates = /\.d\.(?:c|m)?ts$/.test(unresolved)
-    ? [unresolved]
-    : declarationExtension === undefined
-      ? [`${unresolved}.d.ts`, path.join(unresolved, 'index.d.ts')]
-      : [`${unresolved.slice(0, -extension.length)}${declarationExtension}`]
+  const candidates = declarationCandidates(unresolved)
 
   for (const candidate of candidates) {
     assertWithinPackage(candidate)
@@ -467,13 +571,96 @@ async function resolveRelativeDeclaration(importer, specifier) {
   )
 }
 
+function declarationCandidates(unresolved) {
+  const extension = path.extname(unresolved)
+  const declarationExtension = declarationExtensions.get(extension)
+  return /\.d\.(?:c|m)?ts$/.test(unresolved)
+    ? [unresolved]
+    : declarationExtension === undefined
+      ? [`${unresolved}.d.ts`, path.join(unresolved, 'index.d.ts')]
+      : [`${unresolved.slice(0, -extension.length)}${declarationExtension}`]
+}
+
+async function resolvePackageImportDeclarations(packageManifest, specifier) {
+  const imports = packageManifest.imports
+  if (imports === null || typeof imports !== 'object' || Array.isArray(imports)) {
+    throw new Error(`${specifier} is not mapped by package.json imports`)
+  }
+
+  let mapping
+  let wildcardValue
+  if (Object.hasOwn(imports, specifier)) {
+    mapping = imports[specifier]
+  } else {
+    const matches = []
+    for (const [key, value] of Object.entries(imports)) {
+      const wildcardIndex = key.indexOf('*')
+      if (wildcardIndex === -1 || wildcardIndex !== key.lastIndexOf('*')) continue
+      const prefix = key.slice(0, wildcardIndex)
+      const suffix = key.slice(wildcardIndex + 1)
+      if (!specifier.startsWith(prefix) || !specifier.endsWith(suffix)) continue
+      matches.push({
+        prefixLength: prefix.length,
+        suffixLength: suffix.length,
+        wildcardValue: specifier.slice(prefix.length, specifier.length - suffix.length),
+        value
+      })
+    }
+    matches.sort((left, right) => (
+      right.prefixLength - left.prefixLength || right.suffixLength - left.suffixLength
+    ))
+    mapping = matches[0]?.value
+    wildcardValue = matches[0]?.wildcardValue
+  }
+
+  if (mapping === undefined) {
+    throw new Error(`${specifier} is not mapped by package.json imports`)
+  }
+  const targets = []
+  collectPackageImportTargets(mapping, wildcardValue, targets)
+  return Promise.all(targets.map(resolvePackageDeclarationEntrypoint))
+}
+
+function collectPackageImportTargets(value, wildcardValue, targets) {
+  if (typeof value === 'string') {
+    if (!value.startsWith('./')) return
+    const substituted = wildcardValue === undefined
+      ? value
+      : value.replaceAll('*', wildcardValue)
+    targets.push(declarationTargetForExport(substituted) ?? substituted)
+    return
+  }
+  if (Array.isArray(value)) {
+    for (const entry of value) collectPackageImportTargets(entry, wildcardValue, targets)
+    return
+  }
+  if (value !== null && typeof value === 'object') {
+    for (const entry of Object.values(value)) {
+      collectPackageImportTargets(entry, wildcardValue, targets)
+    }
+  }
+}
+
 async function enforcePullRequestVersionPolicy(currentSnapshot, currentVersion) {
   const baseBranch = process.env.GITHUB_BASE_REF
-  if (baseBranch === undefined || baseBranch.length === 0) return
-  await execGit(['check-ref-format', '--branch', baseBranch])
+  const baseSha = process.env.GITHUB_BASE_SHA
+  if (
+    (baseBranch === undefined || baseBranch.length === 0)
+    && (baseSha === undefined || baseSha.length === 0)
+  ) return
 
-  const baseRef = `origin/${baseBranch}`
-  await execGit(['rev-parse', '--verify', baseRef])
+  let baseRef
+  if (baseSha !== undefined && baseSha.length > 0) {
+    if (!/^[0-9a-f]{40}$/.test(baseSha)) {
+      throw new Error('GITHUB_BASE_SHA must be a full lowercase commit SHA')
+    }
+    baseRef = baseSha
+    await execGit(['rev-parse', '--verify', `${baseRef}^{commit}`])
+  } else {
+    await execGit(['check-ref-format', '--branch', baseBranch])
+    baseRef = `origin/${baseBranch}`
+    await execGit(['rev-parse', '--verify', baseRef])
+  }
   const baseSnapshotText = await readOptionalFileAtRef(baseRef, 'api-surface.json')
   if (baseSnapshotText === undefined) return
   const baseSnapshot = parseSnapshot(baseSnapshotText, `${baseRef} public API snapshot`)
@@ -543,13 +730,55 @@ function normalizeText(value) {
 
 function declarationFingerprint(sourceText) {
   const normalized = normalizeText(sourceText)
-  const referenceDirectives = [...normalized.matchAll(
-    /^\s*\/\/\/\s*<reference\s+(?:path|types|lib)=['"][^'"]+['"]\s*\/?>/gm
-  )].map((match) => match[0].trim())
   return JSON.stringify({
-    referenceDirectives,
+    referenceDirectives: collectReferenceDirectives(normalized),
     tokens: tokenizeDeclaration(normalized)
   })
+}
+
+function collectReferenceDirectives(sourceText) {
+  const directives = []
+  const directivePattern = /^\s*\/\/\/\s*<reference\b([^>]*)\/?>\s*$/gm
+  for (const match of sourceText.matchAll(directivePattern)) {
+    const attributes = []
+    const attributePattern = /([A-Za-z][\w-]*)\s*=\s*(['"])(.*?)\2/g
+    for (const attribute of match[1].matchAll(attributePattern)) {
+      attributes.push({ name: attribute[1], value: attribute[3] })
+    }
+    attributes.sort((left, right) => (
+      left.name.localeCompare(right.name) || left.value.localeCompare(right.value)
+    ))
+    if (attributes.length > 0) directives.push({ attributes })
+  }
+  return directives
+}
+
+function collectSemanticJsDocTags(comment) {
+  return [...comment.matchAll(/@(deprecated)\b/g)]
+    .map((match) => match[1])
+    .sort((left, right) => left.localeCompare(right))
+}
+
+function collectOptionalCompatibilityFields(packageManifest) {
+  const fields = {}
+  if (packageManifest.imports !== undefined) fields.imports = packageManifest.imports
+  for (const key of ['os', 'cpu', 'libc']) {
+    if (packageManifest[key] === undefined) continue
+    fields[key] = Array.isArray(packageManifest[key])
+      ? [...packageManifest[key]].sort((left, right) => left.localeCompare(right))
+      : packageManifest[key]
+  }
+  return fields
+}
+
+function canonicalizeUnorderedObject(value) {
+  if (Array.isArray(value)) return value.map(canonicalizeUnorderedObject)
+  if (value === null || typeof value !== 'object') return value
+  return Object.fromEntries(
+    Object.entries(value)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => [key, canonicalizeUnorderedObject(entry)])
+  )
 }
 
 function parseSnapshot(value, label) {

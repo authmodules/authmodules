@@ -57,6 +57,11 @@ for (const repository of repositories) {
     manifest.scripts?.['package:check'] === 'publint && attw --pack --profile esm-only .',
     `${repository} must validate its ESM package surface`
   )
+  assert(
+    manifest.scripts?.check?.includes('npm run api:check')
+      && manifest.scripts.check.includes('npm run package:check'),
+    `${repository} aggregate check must run public API and package-surface validation`
+  )
   assert(manifest.devDependencies?.typescript === '^7.0.2', `${repository} must use TypeScript 7.0.2`)
   assert(manifest.devDependencies?.publint === '^0.3.22', `${repository} must use the audited publint release`)
   assert(
@@ -79,6 +84,10 @@ for (const repository of repositories) {
   assertActionMajor(workflow, 'actions/setup-node', 7, repository)
   assertCheckoutCredentialsDisabled(workflow, repository)
   assert(workflow.includes('timeout-minutes:'), `${repository} check job must have a timeout`)
+  assert(
+    workflow.includes('GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha }}'),
+    `${repository} check job must pin API comparison to the pull request base commit`
+  )
   assert(
     workflow.includes('run: npm install --global npm@11.16.0'),
     `${repository} workflow must install the exact npm version`
