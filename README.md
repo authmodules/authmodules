@@ -57,7 +57,7 @@ The outbox contract remains an optional extension of the stable contract surface
 
 ## Local Checks
 
-Use Node.js 24 or newer. The codebase is checked with TypeScript 7. Runtime repositories resolve the type-only contracts source from a sibling `../contracts` checkout during local development, so keep the repositories as siblings when running package checks.
+Use Node.js 24.11.0 or newer. The codebase is checked with TypeScript 7. Runtime repositories resolve the type-only contracts source from a sibling `../contracts` checkout during local development, so keep the repositories as siblings when running package checks.
 
 ```sh
 AUTHMODULES_POSTGRES_URL=postgres://... npm run check

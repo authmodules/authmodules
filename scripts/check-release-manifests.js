@@ -43,6 +43,10 @@ for (const repository of repositories) {
   assert(manifest.publishConfig?.provenance === undefined, `${repository} must not use npmjs provenance flags`)
   assert(manifest.scripts?.prepack === 'npm run build', `${repository} must build during prepack`)
   assert(manifest.scripts?.['pack:dry-run'] === 'npm pack --dry-run --ignore-scripts', `${repository} dry-run pack must ignore lifecycle scripts`)
+  assert(
+    manifest.scripts?.['api:update'] === 'npm run build && node scripts/check-package-api.js --write',
+    `${repository} must build declarations before updating its public API snapshot`
+  )
   assert(manifest.scripts?.['api:check'] === 'node scripts/check-package-api.js', `${repository} must verify its public API snapshot`)
   assert(
     manifest.scripts?.['package:check'] === 'publint && attw --pack --profile esm-only .',
@@ -232,6 +236,7 @@ for (const repository of ['authmodules', '.github']) {
     const lock = await readJson(new URL(`${repository}/package-lock.json`, workspaceRoot))
     assertLockRootMatchesManifest(manifest, lock, repository)
     assertToolchain(manifest, lock, repository)
+    assert(manifest.engines?.node === '>=24.11.0', `${repository} must declare the Babel 8 Node.js minimum`)
     assert(manifest.devDependencies?.typescript === '^7.0.2', `${repository} must use TypeScript 7.0.2`)
     assert(manifest.devDependencies?.['@babel/parser'] === '^8.0.4', `${repository} must use the audited AST parser`)
     assert(dependabot.includes('package-ecosystem: npm'), `${repository} Dependabot must update npm dependencies`)

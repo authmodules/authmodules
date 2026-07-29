@@ -1,15 +1,23 @@
 import { createHash } from 'node:crypto'
 import { execFile } from 'node:child_process'
-import { readFile, readdir, writeFile } from 'node:fs/promises'
+import { access, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
-const packageRoot = fileURLToPath(new URL('../', import.meta.url))
+const packageRoot = path.resolve(fileURLToPath(new URL('../', import.meta.url)))
 const snapshotPath = path.join(packageRoot, 'api-surface.json')
 const manifestPath = path.join(packageRoot, 'package.json')
 const write = process.argv.includes('--write')
+const declarationExtensions = new Map([
+  ['.js', '.d.ts'],
+  ['.mjs', '.d.mts'],
+  ['.cjs', '.d.cts'],
+  ['.ts', '.d.ts'],
+  ['.mts', '.d.mts'],
+  ['.cts', '.d.cts']
+])
 
 if (process.argv.length > 3 || (process.argv.length === 3 && !write)) {
   throw new Error('Usage: node scripts/check-package-api.js [--write]')
@@ -23,8 +31,11 @@ if (write) {
   await writeFile(snapshotPath, serializedSnapshot)
   console.log(`Public API snapshot updated for ${manifest.name}`)
 } else {
-  const committedSnapshot = await readFile(snapshotPath, 'utf8')
-  if (committedSnapshot !== serializedSnapshot) {
+  const committedSnapshot = parseSnapshot(
+    await readFile(snapshotPath, 'utf8'),
+    'Committed public API snapshot'
+  )
+  if (!snapshotsEqual(committedSnapshot, snapshot)) {
     throw new Error('Public API snapshot is stale; run npm run api:update and review the change')
   }
   await enforcePullRequestVersionPolicy(committedSnapshot, manifest.version)
@@ -36,10 +47,11 @@ async function createSnapshot(packageManifest) {
     throw new Error('Package name and top-level types entrypoint are required')
   }
 
-  const declarationRoot = path.dirname(path.join(packageRoot, packageManifest.types))
-  const declarationFiles = await collectDeclarationFiles(declarationRoot)
+  const declarationFiles = await collectReachableDeclarationFiles(
+    collectPublicTypeEntrypoints(packageManifest)
+  )
   if (declarationFiles.length === 0) {
-    throw new Error(`No declaration files found below ${path.relative(packageRoot, declarationRoot)}`)
+    throw new Error('No declarations are reachable from public package entrypoints')
   }
 
   return {
@@ -51,40 +63,112 @@ async function createSnapshot(packageManifest) {
       types: packageManifest.types,
       exports: packageManifest.exports ?? null
     },
+    compatibility: {
+      engines: packageManifest.engines ?? null,
+      peerDependencies: packageManifest.peerDependencies ?? null,
+      peerDependenciesMeta: packageManifest.peerDependenciesMeta ?? null
+    },
     declarations: await Promise.all(declarationFiles.map(async (filePath) => ({
       path: normalizePath(path.relative(packageRoot, filePath)),
-      sha256: createHash('sha256').update(await readFile(filePath)).digest('hex')
+      sha256: createHash('sha256')
+        .update(normalizeText(await readFile(filePath, 'utf8')))
+        .digest('hex')
     })))
   }
 }
 
-async function collectDeclarationFiles(directory) {
-  const entries = await readdir(directory, { withFileTypes: true })
-  const files = []
+function collectPublicTypeEntrypoints(packageManifest) {
+  const entrypoints = new Set([packageManifest.types])
+  collectDeclarationTargets(packageManifest.exports, entrypoints)
+  return [...entrypoints].map(resolvePackageDeclaration)
+}
 
-  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
-    const entryPath = path.join(directory, entry.name)
-    if (entry.isDirectory()) {
-      files.push(...await collectDeclarationFiles(entryPath))
-    } else if (entry.name.endsWith('.d.ts')) {
-      files.push(entryPath)
+function collectDeclarationTargets(value, targets) {
+  if (typeof value === 'string') {
+    if (/\.d\.(?:c|m)?ts$/.test(value)) targets.add(value)
+    return
+  }
+  if (Array.isArray(value)) {
+    for (const entry of value) collectDeclarationTargets(entry, targets)
+    return
+  }
+  if (value !== null && typeof value === 'object') {
+    for (const entry of Object.values(value)) collectDeclarationTargets(entry, targets)
+  }
+}
+
+function resolvePackageDeclaration(target) {
+  if (typeof target !== 'string' || !target.startsWith('./')) {
+    throw new Error(`Public declaration target must be package-relative, received ${String(target)}`)
+  }
+  const resolved = path.resolve(packageRoot, target)
+  assertWithinPackage(resolved)
+  return resolved
+}
+
+async function collectReachableDeclarationFiles(entrypoints) {
+  const pending = [...entrypoints]
+  const visited = new Set()
+
+  while (pending.length > 0) {
+    const filePath = pending.pop()
+    if (visited.has(filePath)) continue
+    const sourceText = await readFile(filePath, 'utf8')
+    visited.add(filePath)
+    for (const specifier of collectRelativeDeclarationSpecifiers(sourceText)) {
+      pending.push(await resolveRelativeDeclaration(filePath, specifier))
     }
   }
 
-  return files
+  return [...visited].sort((left, right) => left.localeCompare(right))
+}
+
+function collectRelativeDeclarationSpecifiers(sourceText) {
+  const specifiers = new Set()
+  const modulePattern = /\b(?:from|import)\s*(?:\(\s*)?['"](\.{1,2}\/[^'"]+)['"]/g
+  const referencePattern = /<reference\s+path=['"](\.{1,2}\/[^'"]+)['"]/g
+  for (const pattern of [modulePattern, referencePattern]) {
+    for (const match of sourceText.matchAll(pattern)) specifiers.add(match[1])
+  }
+  return specifiers
+}
+
+async function resolveRelativeDeclaration(importer, specifier) {
+  const unresolved = path.resolve(path.dirname(importer), specifier)
+  assertWithinPackage(unresolved)
+  const extension = path.extname(unresolved)
+  const declarationExtension = declarationExtensions.get(extension)
+  const candidates = /\.d\.(?:c|m)?ts$/.test(unresolved)
+    ? [unresolved]
+    : declarationExtension === undefined
+      ? [`${unresolved}.d.ts`, path.join(unresolved, 'index.d.ts')]
+      : [`${unresolved.slice(0, -extension.length)}${declarationExtension}`]
+
+  for (const candidate of candidates) {
+    assertWithinPackage(candidate)
+    try {
+      await access(candidate)
+      return candidate
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error
+    }
+  }
+  throw new Error(
+    `${normalizePath(path.relative(packageRoot, importer))} references missing declaration ${specifier}`
+  )
 }
 
 async function enforcePullRequestVersionPolicy(currentSnapshot, currentVersion) {
   const baseBranch = process.env.GITHUB_BASE_REF
   if (baseBranch === undefined || baseBranch.length === 0) return
-  if (!/^[A-Za-z0-9._/-]+$/.test(baseBranch)) {
-    throw new Error('GITHUB_BASE_REF contains unsupported characters')
-  }
+  await execGit(['check-ref-format', '--branch', baseBranch])
 
   const baseRef = `origin/${baseBranch}`
   await execGit(['rev-parse', '--verify', baseRef])
-  const baseSnapshot = await readOptionalFileAtRef(baseRef, 'api-surface.json')
-  if (baseSnapshot === undefined || baseSnapshot === currentSnapshot) return
+  const baseSnapshotText = await readOptionalFileAtRef(baseRef, 'api-surface.json')
+  if (baseSnapshotText === undefined) return
+  const baseSnapshot = parseSnapshot(baseSnapshotText, `${baseRef} public API snapshot`)
+  if (snapshotsEqual(baseSnapshot, currentSnapshot)) return
 
   const baseManifestText = await readRequiredFileAtRef(baseRef, 'package.json')
   const baseVersion = JSON.parse(baseManifestText).version
@@ -142,4 +226,30 @@ async function execGit(args) {
 
 function normalizePath(value) {
   return value.split(path.sep).join('/')
+}
+
+function normalizeText(value) {
+  return value.replace(/\r\n?/g, '\n')
+}
+
+function parseSnapshot(value, label) {
+  try {
+    const parsed = JSON.parse(value)
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('snapshot root must be an object')
+    }
+    return parsed
+  } catch (error) {
+    throw new Error(`${label} is invalid JSON: ${error.message}`)
+  }
+}
+
+function snapshotsEqual(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right)
+}
+
+function assertWithinPackage(filePath) {
+  if (filePath !== packageRoot && !filePath.startsWith(`${packageRoot}${path.sep}`)) {
+    throw new Error(`Declaration path escapes the package root: ${filePath}`)
+  }
 }

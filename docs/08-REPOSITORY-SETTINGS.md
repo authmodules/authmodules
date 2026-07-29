@@ -96,7 +96,7 @@ The organization profile repository is not versioned as `0.1.0`.
 
 After the initial release, package versions remain independent. A release plan records the complete compatible package set, while only changed packages receive new package tags, registry versions, and GitHub Releases. Unchanged packages retain their existing immutable tags and versions in the new plan.
 
-Before creating a plan, every package must pass its local check with the exact toolchain in its lockfile. Public package entrypoints and generated declarations are recorded in `api-surface.json`. An initial snapshot does not force a version change; later public API changes require at least the next minor version before `1.0.0` and the next major version after `1.0.0`. This conservative rule deliberately treats every public surface change as potentially breaking.
+Before creating a plan, every package must pass its local check with the exact toolchain in its lockfile. Public package entrypoints, compatibility ranges, and generated declarations reachable from exported type entrypoints are recorded in `api-surface.json`; text hashes are normalized across operating systems. An initial snapshot does not force a version change; later public API changes require at least the next minor version before `1.0.0` and the next major version after `1.0.0`. This conservative rule deliberately treats every public surface change as potentially breaking.
 
 Package pull requests run dependency review and CodeQL in addition to the package check. Dependabot proposes npm and GitHub Actions updates on a bounded weekly schedule. These checks complement, but do not replace, code review and release-plan integrity verification.
 

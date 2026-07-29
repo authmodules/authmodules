@@ -6,7 +6,7 @@
   "type": "module",
   "license": "MIT",
   "engines": {
-    "node": ">=24"
+    "node": ">=24.11.0"
   },
   "packageManager": "npm@11.16.0",
   "devEngines": {
