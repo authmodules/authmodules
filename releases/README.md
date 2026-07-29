@@ -7,6 +7,7 @@ Create the manifest only after every package repository has its final reviewed c
 - the exact `authmodules/<repository>` name;
 - the full lowercase 40-character commit revision;
 - the protected `v<version>` tag;
-- the exact independently managed package version.
+- the exact independently managed package version;
+- the canonical SHA-512 integrity of the packed artifact.
 
 Do not use placeholder revisions, branch names, shortened hashes, version ranges, or mutable workflow input JSON. The central release workflow checks out every package tag and rejects the run unless the resulting commit matches the recorded revision.
