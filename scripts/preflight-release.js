@@ -2,9 +2,15 @@ import { execFile } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import { isExactVersion, packageRepositories, parseReleaseManifest } from './release-manifest.js'
+import {
+  isExactIntegrity,
+  isExactVersion,
+  packageRepositories,
+  parseReleaseManifest
+} from './release-manifest.js'
 
 const execFileAsync = promisify(execFile)
+const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm'
 const release = process.argv[2]
 
 if (process.argv.length !== 3 || !isExactVersion(release)) {
@@ -30,9 +36,17 @@ const packageStatuses = await mapWithConcurrency(packageRepositories, 1, async (
   const githubRelease = await resolveGitHubRelease(entry.repository, entry.tag)
   const registryVersions = await resolvePackageVersions(repository)
   const registryVersion = registryVersions.includes(entry.version)
+  const registryIntegrity = registryVersion
+    ? await resolveRegistryIntegrity(repository, entry.version)
+    : undefined
 
   if (tagRevision !== undefined && tagRevision !== entry.revision) {
     throw new Error(`${entry.repository} ${entry.tag} resolves to ${tagRevision}, expected ${entry.revision}`)
+  }
+  if (registryIntegrity !== undefined && registryIntegrity !== entry.integrity) {
+    throw new Error(
+      `${entry.repository} ${entry.version} registry integrity does not match the release manifest`
+    )
   }
   if ((githubRelease || registryVersion) && tagRevision === undefined) {
     throw new Error(`${entry.repository} has released ${entry.version} without the manifest tag`)
@@ -119,6 +133,21 @@ async function resolveReleasePlanManifest(expectedRelease, ref) {
 }
 
 async function resolvePackageVersions(packageName) {
+  const packageMetadata = await ghJson([
+    'api',
+    '--method',
+    'GET',
+    `orgs/authmodules/packages/npm/${encodeURIComponent(packageName)}`
+  ], true)
+  if (packageMetadata === undefined) return []
+  if (
+    packageMetadata.visibility !== 'public'
+    || packageMetadata.repository?.full_name !== `authmodules/${packageName}`
+    || packageMetadata.repository?.private !== false
+  ) {
+    throw new Error(`@authmodules/${packageName} must be public and linked to its public repository`)
+  }
+
   const versions = await ghJson([
     'api',
     '--paginate',
@@ -140,6 +169,39 @@ async function resolvePackageVersions(packageName) {
     .filter((name) => typeof name === 'string')
 }
 
+async function resolveRegistryIntegrity(packageName, version) {
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const { stdout } = await execFileAsync(
+        npm,
+        [
+          'view',
+          `@authmodules/${packageName}@${version}`,
+          'dist.integrity',
+          '--registry=https://npm.pkg.github.com',
+          '--json'
+        ],
+        { encoding: 'utf8', maxBuffer: 1024 * 1024, timeout: 10_000 }
+      )
+      const integrity = JSON.parse(stdout)
+      if (!isExactIntegrity(integrity)) {
+        throw new Error('registry returned an invalid SHA-512 integrity')
+      }
+      return integrity
+    } catch (error) {
+      const diagnostic = processDiagnostic(error)
+      if (isTransientProcessError(error, diagnostic) && attempt < 3) {
+        await new Promise((resolve) => setTimeout(resolve, 500 * attempt))
+        continue
+      }
+      throw new Error(
+        `GitHub Packages integrity lookup failed for @authmodules/${packageName}@${version}: `
+        + diagnostic.trim()
+      )
+    }
+  }
+}
+
 async function ghJson(args, allowMissing) {
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     try {
@@ -150,21 +212,28 @@ async function ghJson(args, allowMissing) {
       )
       return JSON.parse(stdout)
     } catch (error) {
-      const diagnostic = `${error?.message ?? ''}\n${error?.stdout ?? ''}\n${error?.stderr ?? ''}`
+      const diagnostic = processDiagnostic(error)
       if (allowMissing && /(?:^|\s)HTTP 404(?:\s|$)|Not Found/.test(diagnostic)) {
         return undefined
       }
-      const transient = error?.killed === true
-        || error?.signal === 'SIGTERM'
-        || error?.code === 'ETIMEDOUT'
-        || /timed out|EOF|ETIMEDOUT|ECONNRESET|HTTP (?:502|503|504)/i.test(diagnostic)
-      if (transient && attempt < 3) {
+      if (isTransientProcessError(error, diagnostic) && attempt < 3) {
         await new Promise((resolve) => setTimeout(resolve, 500 * attempt))
         continue
       }
       throw new Error(`GitHub release preflight failed: ${diagnostic.trim()}`)
     }
   }
+}
+
+function processDiagnostic(error) {
+  return `${error?.message ?? ''}\n${error?.stdout ?? ''}\n${error?.stderr ?? ''}`
+}
+
+function isTransientProcessError(error, diagnostic) {
+  return error?.killed === true
+    || error?.signal === 'SIGTERM'
+    || error?.code === 'ETIMEDOUT'
+    || /timed out|EOF|ETIMEDOUT|ECONNRESET|HTTP (?:502|503|504)/i.test(diagnostic)
 }
 
 async function mapWithConcurrency(values, limit, operation) {

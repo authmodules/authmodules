@@ -68,12 +68,13 @@ async function createSnapshot(packageManifest) {
     compatibility: {
       engines: packageManifest.engines ?? null,
       peerDependencies: packageManifest.peerDependencies ?? null,
-      peerDependenciesMeta: packageManifest.peerDependenciesMeta ?? null
+      peerDependenciesMeta: packageManifest.peerDependenciesMeta ?? null,
+      typesVersions: packageManifest.typesVersions ?? null
     },
     declarations: await Promise.all(declarationFiles.map(async (filePath) => ({
       path: normalizePath(path.relative(packageRoot, filePath)),
       sha256: createHash('sha256')
-        .update(normalizeText(await readFile(filePath, 'utf8')))
+        .update(declarationFingerprint(await readFile(filePath, 'utf8')))
         .digest('hex')
     })))
   }
@@ -180,7 +181,9 @@ function tokenizeDeclaration(sourceText) {
       continue
     }
     if (character === '`') {
-      index = readStringToken(sourceText, index, character).nextIndex
+      const templateToken = readStringToken(sourceText, index, character)
+      tokens.push({ type: 'template', value: templateToken.value })
+      index = templateToken.nextIndex
       continue
     }
     if (/[A-Za-z_$]/.test(character)) {
@@ -205,7 +208,7 @@ function readStringToken(sourceText, startIndex, quote) {
     if (character === quote) return { value, nextIndex: index + 1 }
     if (character === '\\') {
       if (index + 1 >= sourceText.length) break
-      value += sourceText[index + 1]
+      value += `${character}${sourceText[index + 1]}`
       index += 2
       continue
     }
@@ -231,6 +234,10 @@ function assertDeclarationScanner() {
   const expected = ['./lazy.js', './public.ts', './reference.d.ts']
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
     throw new Error('Declaration dependency scanner failed its internal invariant')
+  }
+  const changedDocumentation = sourceText.replace('comment-only.js', 'different-comment.js')
+  if (declarationFingerprint(sourceText) !== declarationFingerprint(changedDocumentation)) {
+    throw new Error('Declaration fingerprint must ignore non-semantic comments')
   }
 }
 
@@ -331,6 +338,17 @@ function normalizePath(value) {
 
 function normalizeText(value) {
   return value.replace(/\r\n?/g, '\n')
+}
+
+function declarationFingerprint(sourceText) {
+  const normalized = normalizeText(sourceText)
+  const referenceDirectives = [...normalized.matchAll(
+    /^\s*\/\/\/\s*<reference\s+(?:path|types|lib)=['"][^'"]+['"]\s*\/?>/gm
+  )].map((match) => match[0].trim())
+  return JSON.stringify({
+    referenceDirectives,
+    tokens: tokenizeDeclaration(normalized)
+  })
 }
 
 function parseSnapshot(value, label) {
