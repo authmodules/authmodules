@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { execFile } from 'node:child_process'
-import { access, readFile, writeFile } from 'node:fs/promises'
+import { access, glob, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
@@ -12,9 +12,11 @@ const manifestPath = path.join(packageRoot, 'package.json')
 const write = process.argv.includes('--write')
 const declarationExtensions = new Map([
   ['.js', '.d.ts'],
+  ['.jsx', '.d.ts'],
   ['.mjs', '.d.mts'],
   ['.cjs', '.d.cts'],
   ['.ts', '.d.ts'],
+  ['.tsx', '.d.ts'],
   ['.mts', '.d.mts'],
   ['.cts', '.d.cts']
 ])
@@ -23,7 +25,7 @@ if (process.argv.length > 3 || (process.argv.length === 3 && !write)) {
   throw new Error('Usage: node scripts/check-package-api.js [--write]')
 }
 
-assertDeclarationScanner()
+await assertDeclarationScanner()
 
 const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
 const snapshot = await createSnapshot(manifest)
@@ -49,9 +51,8 @@ async function createSnapshot(packageManifest) {
     throw new Error('Package name and top-level types entrypoint are required')
   }
 
-  const declarationFiles = await collectReachableDeclarationFiles(
-    collectPublicTypeEntrypoints(packageManifest)
-  )
+  const publicTypeEntrypoints = await collectPublicTypeEntrypoints(packageManifest)
+  const declarationFiles = await collectReachableDeclarationFiles(publicTypeEntrypoints)
   if (declarationFiles.length === 0) {
     throw new Error('No declarations are reachable from public package entrypoints')
   }
@@ -80,15 +81,36 @@ async function createSnapshot(packageManifest) {
   }
 }
 
-function collectPublicTypeEntrypoints(packageManifest) {
-  const entrypoints = new Set([packageManifest.types])
-  collectDeclarationTargets(packageManifest.exports, entrypoints)
-  return [...entrypoints].map(resolvePackageDeclaration)
+async function collectPublicTypeEntrypoints(packageManifest) {
+  const targets = new Set([packageManifest.types])
+  collectDeclarationTargets(packageManifest.exports, targets)
+  const entrypoints = new Set()
+
+  for (const target of targets) {
+    if (!target.includes('*')) {
+      entrypoints.add(resolvePackageDeclaration(target))
+      continue
+    }
+    const pattern = resolvePackageDeclaration(target)
+    let matched = false
+    for await (const relativePath of glob(normalizePath(path.relative(packageRoot, pattern)), {
+      cwd: packageRoot
+    })) {
+      entrypoints.add(resolvePackageDeclaration(`./${normalizePath(relativePath)}`))
+      matched = true
+    }
+    if (!matched) {
+      throw new Error(`Public declaration pattern did not match any files: ${target}`)
+    }
+  }
+
+  return [...entrypoints].sort((left, right) => left.localeCompare(right))
 }
 
 function collectDeclarationTargets(value, targets) {
   if (typeof value === 'string') {
-    if (/\.d\.(?:c|m)?ts$/.test(value)) targets.add(value)
+    const declarationTarget = declarationTargetForExport(value)
+    if (declarationTarget !== undefined) targets.add(declarationTarget)
     return
   }
   if (Array.isArray(value)) {
@@ -98,6 +120,14 @@ function collectDeclarationTargets(value, targets) {
   if (value !== null && typeof value === 'object') {
     for (const entry of Object.values(value)) collectDeclarationTargets(entry, targets)
   }
+}
+
+function declarationTargetForExport(target) {
+  if (/\.d\.(?:c|m)?ts$/.test(target)) return target
+  const extension = path.extname(target)
+  const declarationExtension = declarationExtensions.get(extension)
+  if (declarationExtension === undefined) return undefined
+  return `${target.slice(0, -extension.length)}${declarationExtension}`
 }
 
 function resolvePackageDeclaration(target) {
@@ -128,12 +158,24 @@ async function collectReachableDeclarationFiles(entrypoints) {
 
 function collectRelativeDeclarationSpecifiers(sourceText) {
   const specifiers = new Set()
-  const referencePattern = /^\s*\/\/\/\s*<reference\s+path=['"](\.{1,2}\/[^'"]+)['"]/gm
-  for (const match of sourceText.matchAll(referencePattern)) specifiers.add(match[1])
+  const referencePattern = /^\s*\/\/\/\s*<reference\s+path=['"]([^'"]+)['"]/gm
+  for (const match of sourceText.matchAll(referencePattern)) {
+    addRelativeReference(specifiers, match[1])
+  }
 
-  const tokens = tokenizeDeclaration(sourceText)
+  collectSpecifiersFromTokens(tokenizeDeclaration(sourceText), specifiers)
+  return specifiers
+}
+
+function collectSpecifiersFromTokens(tokens, specifiers) {
   for (let index = 0; index < tokens.length; index += 1) {
     const token = tokens[index]
+    if (token.type === 'template') {
+      for (const expressionTokens of token.expressions) {
+        collectSpecifiersFromTokens(expressionTokens, specifiers)
+      }
+      continue
+    }
     if (token.type !== 'identifier') continue
     if (token.value === 'from' && tokens[index + 1]?.type === 'string') {
       addRelativeSpecifier(specifiers, tokens[index + 1].value)
@@ -149,7 +191,6 @@ function collectRelativeDeclarationSpecifiers(sourceText) {
       addRelativeSpecifier(specifiers, tokens[index + 1].value)
     }
   }
-  return specifiers
 }
 
 function tokenizeDeclaration(sourceText) {
@@ -181,8 +222,12 @@ function tokenizeDeclaration(sourceText) {
       continue
     }
     if (character === '`') {
-      const templateToken = readStringToken(sourceText, index, character)
-      tokens.push({ type: 'template', value: templateToken.value })
+      const templateToken = readTemplateToken(sourceText, index)
+      tokens.push({
+        type: 'template',
+        segments: templateToken.segments,
+        expressions: templateToken.expressions
+      })
       index = templateToken.nextIndex
       continue
     }
@@ -207,9 +252,9 @@ function readStringToken(sourceText, startIndex, quote) {
     const character = sourceText[index]
     if (character === quote) return { value, nextIndex: index + 1 }
     if (character === '\\') {
-      if (index + 1 >= sourceText.length) break
-      value += `${character}${sourceText[index + 1]}`
-      index += 2
+      const escape = readEscapeSequence(sourceText, index)
+      value += escape.value
+      index = escape.nextIndex
       continue
     }
     value += character
@@ -218,22 +263,178 @@ function readStringToken(sourceText, startIndex, quote) {
   throw new Error('Generated declaration contains an unterminated string')
 }
 
+function readTemplateToken(sourceText, startIndex) {
+  const segments = []
+  const expressions = []
+  let segment = ''
+  let index = startIndex + 1
+
+  while (index < sourceText.length) {
+    const character = sourceText[index]
+    if (character === '`') {
+      segments.push(segment)
+      return { segments, expressions, nextIndex: index + 1 }
+    }
+    if (character === '\\') {
+      if (index + 1 >= sourceText.length) break
+      segment += `${character}${sourceText[index + 1]}`
+      index += 2
+      continue
+    }
+    if (character === '$' && sourceText[index + 1] === '{') {
+      segments.push(segment)
+      segment = ''
+      const expression = readTemplateExpression(sourceText, index + 2)
+      expressions.push(tokenizeDeclaration(expression.value))
+      index = expression.nextIndex
+      continue
+    }
+    segment += character
+    index += 1
+  }
+
+  throw new Error('Generated declaration contains an unterminated template literal')
+}
+
+function readTemplateExpression(sourceText, startIndex) {
+  let depth = 1
+  let index = startIndex
+
+  while (index < sourceText.length) {
+    const character = sourceText[index]
+    const next = sourceText[index + 1]
+    if (character === "'" || character === '"') {
+      index = readStringToken(sourceText, index, character).nextIndex
+      continue
+    }
+    if (character === '`') {
+      index = readTemplateToken(sourceText, index).nextIndex
+      continue
+    }
+    if (character === '/' && next === '/') {
+      index = sourceText.indexOf('\n', index + 2)
+      if (index === -1) {
+        throw new Error('Generated declaration contains an unterminated template expression')
+      }
+      continue
+    }
+    if (character === '/' && next === '*') {
+      const end = sourceText.indexOf('*/', index + 2)
+      if (end === -1) throw new Error('Generated declaration contains an unterminated comment')
+      index = end + 2
+      continue
+    }
+    if (character === '{') depth += 1
+    if (character === '}') {
+      depth -= 1
+      if (depth === 0) {
+        return {
+          value: sourceText.slice(startIndex, index),
+          nextIndex: index + 1
+        }
+      }
+    }
+    index += 1
+  }
+
+  throw new Error('Generated declaration contains an unterminated template expression')
+}
+
+function readEscapeSequence(sourceText, startIndex) {
+  const escaped = sourceText[startIndex + 1]
+  if (escaped === undefined) {
+    throw new Error('Generated declaration contains an unterminated escape sequence')
+  }
+  if (escaped === '\n') return { value: '', nextIndex: startIndex + 2 }
+  if (escaped === '\r') {
+    return {
+      value: '',
+      nextIndex: sourceText[startIndex + 2] === '\n' ? startIndex + 3 : startIndex + 2
+    }
+  }
+
+  const simpleEscapes = new Map([
+    ['0', '\0'],
+    ['b', '\b'],
+    ['f', '\f'],
+    ['n', '\n'],
+    ['r', '\r'],
+    ['t', '\t'],
+    ['v', '\v']
+  ])
+  if (simpleEscapes.has(escaped)) {
+    return { value: simpleEscapes.get(escaped), nextIndex: startIndex + 2 }
+  }
+  if (escaped === 'x') {
+    return readHexEscape(sourceText, startIndex, 2, 2)
+  }
+  if (escaped === 'u' && sourceText[startIndex + 2] === '{') {
+    const end = sourceText.indexOf('}', startIndex + 3)
+    if (end === -1) throw new Error('Generated declaration contains an invalid Unicode escape')
+    const digits = sourceText.slice(startIndex + 3, end)
+    if (!/^[0-9A-Fa-f]{1,6}$/.test(digits)) {
+      throw new Error('Generated declaration contains an invalid Unicode code point escape')
+    }
+    const codePoint = Number.parseInt(digits, 16)
+    if (codePoint > 0x10FFFF) {
+      throw new Error('Generated declaration contains an out-of-range Unicode escape')
+    }
+    return { value: String.fromCodePoint(codePoint), nextIndex: end + 1 }
+  }
+  if (escaped === 'u') {
+    return readHexEscape(sourceText, startIndex, 2, 4)
+  }
+  return { value: escaped, nextIndex: startIndex + 2 }
+}
+
+function readHexEscape(sourceText, startIndex, prefixLength, digitsLength) {
+  const digitsStart = startIndex + prefixLength
+  const digits = sourceText.slice(digitsStart, digitsStart + digitsLength)
+  if (digits.length !== digitsLength || !/^[0-9A-Fa-f]+$/.test(digits)) {
+    throw new Error('Generated declaration contains an invalid hexadecimal escape')
+  }
+  return {
+    value: String.fromCodePoint(Number.parseInt(digits, 16)),
+    nextIndex: digitsStart + digitsLength
+  }
+}
+
 function addRelativeSpecifier(specifiers, value) {
   if (value.startsWith('./') || value.startsWith('../')) specifiers.add(value)
 }
 
-function assertDeclarationScanner() {
-  const sourceText = `
-    /** import './comment-only.js' and from './documentation-only.js' */
-    /// <reference path="./reference.d.ts" />
-    import type { PublicType } from './public.ts'
-    export type LazyType = import('./lazy.js').PublicType
-    type DocumentationLiteral = "from './string-only.js'"
-  `
+function addRelativeReference(specifiers, value) {
+  if (!path.isAbsolute(value) && !/^[A-Za-z]:[\\/]/.test(value)) specifiers.add(value)
+}
+
+async function assertDeclarationScanner() {
+  const sourceText = [
+    "/** import './comment-only.js' and from './documentation-only.js' */",
+    '/// <reference path="reference.d.ts" />',
+    "import type { PublicType } from './public.tsx'",
+    "export type LazyType = import('./lazy.js').PublicType",
+    "export type EscapedType = import('./escaped\\u002ejs').PublicType",
+    "export type TemplateType = `prefix${import('./template.js').PublicType}`",
+    'type DocumentationLiteral = "from \'./string-only.js\'"',
+    "type TemplateDocumentation = `import('./template-string-only.js')`"
+  ].join('\n')
   const actual = [...collectRelativeDeclarationSpecifiers(sourceText)].sort()
-  const expected = ['./lazy.js', './public.ts', './reference.d.ts']
+  const expected = [
+    './escaped.js',
+    './lazy.js',
+    './public.tsx',
+    './template.js',
+    'reference.d.ts'
+  ]
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
     throw new Error('Declaration dependency scanner failed its internal invariant')
+  }
+  if (
+    declarationTargetForExport('./dist/index.js') !== './dist/index.d.ts'
+    || declarationTargetForExport('./dist/components/*.tsx') !== './dist/components/*.d.ts'
+    || declarationTargetForExport('./dist/index.d.mts') !== './dist/index.d.mts'
+  ) {
+    throw new Error('Declaration export target mapping failed its internal invariant')
   }
   const changedDocumentation = sourceText.replace('comment-only.js', 'different-comment.js')
   if (declarationFingerprint(sourceText) !== declarationFingerprint(changedDocumentation)) {

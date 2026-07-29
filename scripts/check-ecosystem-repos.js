@@ -29,7 +29,9 @@ const canonicalRelease = await readFile(
   'utf8'
 )
 
-await assertNoWorkspaceArtifacts(root)
+for (const repository of ['authmodules', '.github', ...requiredRepositories]) {
+  await assertNoWorkspaceArtifacts(new URL(`${repository}/`, root))
+}
 
 for (const repository of requiredRepositories) {
   await access(new URL(`${repository}/.git`, root))
