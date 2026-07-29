@@ -53,12 +53,12 @@ jobs:
           persist-credentials: false
           repository: authmodules/contracts
           ref: refs/tags/${{ steps.release.outputs.contracts_tag }}
-          path: contracts-release
+          path: contracts
       - name: Verify immutable package sources
         run: node scripts/verify-package-release.js
         working-directory: release-plan
         env:
-          AUTHMODULES_CONTRACTS_DIRECTORY: ../contracts-release
+          AUTHMODULES_CONTRACTS_DIRECTORY: ../contracts
           AUTHMODULES_PACKAGE_DIRECTORY: ../__PACKAGE__
           AUTHMODULES_PACKAGE_KEY: __PACKAGE__
           AUTHMODULES_PACKAGE_REPOSITORY: ${{ github.repository }}
@@ -85,7 +85,7 @@ jobs:
         run: node scripts/prepare-package-release-evidence.js
         working-directory: release-plan
         env:
-          AUTHMODULES_CONTRACTS_DIRECTORY: ../contracts-release
+          AUTHMODULES_CONTRACTS_DIRECTORY: ../contracts
           AUTHMODULES_EVIDENCE_DIRECTORY: ${{ runner.temp }}/release-evidence
           AUTHMODULES_EXPECTED_INTEGRITY: ${{ steps.release.outputs.package_integrity }}
           AUTHMODULES_PACKAGE_DIRECTORY: ../__PACKAGE__
