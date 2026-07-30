@@ -27,6 +27,10 @@ const declarationExtensions = new Map([
   ['.mts', '.d.mts'],
   ['.cts', '.d.cts']
 ])
+const resolutionResolved = 'resolved'
+const resolutionUndefined = 'undefined'
+const resolutionInvalid = 'invalid'
+const maximumEnumeratedConditions = 12
 
 if (process.argv.length > 3 || (process.argv.length === 3 && !write)) {
   throw new Error('Usage: node scripts/check-package-api.js [--write]')
@@ -95,23 +99,242 @@ async function createSnapshot(packageManifest) {
 }
 
 async function collectPublicTypeEntrypoints(packageManifest) {
-  const targets = new Set()
+  const targetGroups = []
   if (packageManifest.types !== undefined) {
-    targets.add(normalizeTopLevelTypesTarget(packageManifest.types))
+    targetGroups.push(new Set([normalizeTopLevelTypesTarget(packageManifest.types)]))
   }
-  collectDeclarationTargets(packageManifest.exports, targets)
-  collectTypesVersionsTargets(packageManifest.typesVersions, targets)
-  if (targets.size === 0) {
+  collectDeclarationTargetGroups(packageManifest.exports, targetGroups)
+  collectTypesVersionsTargetGroups(packageManifest.typesVersions, targetGroups)
+  if (targetGroups.length === 0) {
     throw new Error('At least one public type entrypoint is required through types or exports')
   }
   const entrypoints = new Set()
 
+  for (const targetGroup of targetGroups) {
+    const resolved = await resolveDeclarationTargetGroup(targetGroup)
+    if (resolved.length === 0) {
+      throw new Error(
+        `No public declaration target resolved from: ${[...targetGroup].join(', ')}`
+      )
+    }
+    for (const entrypoint of resolved) entrypoints.add(entrypoint)
+  }
+
+  return [...entrypoints].sort((left, right) => left.localeCompare(right))
+}
+
+function collectDeclarationTargetGroups(value, groups) {
+  if (value === undefined) return
+  if (value !== null && typeof value === 'object') {
+    const entries = Object.entries(value)
+    const subpathKeys = entries.filter(([key]) => key.startsWith('.')).length
+    if (subpathKeys > 0 && subpathKeys !== entries.length) {
+      throw new Error('Package exports cannot mix subpath and condition keys')
+    }
+    if (subpathKeys === entries.length) {
+      for (const [subpath, entry] of entries) {
+        collectConditionalTargetGroups(
+          entry,
+          groups,
+          collectExportStringTarget,
+          `Package export ${subpath}`
+        )
+      }
+      return
+    }
+  }
+  collectConditionalTargetGroups(
+    value,
+    groups,
+    collectExportStringTarget,
+    'Package exports'
+  )
+}
+
+function collectExportStringTarget(target, groups) {
+  if (!isValidLocalPackageTarget(target)) return resolutionInvalid
+  if (target !== './package.json') {
+    addSingletonTargetGroup(groups, declarationTargetForExport(target) ?? target)
+  }
+  return resolutionResolved
+}
+
+function collectConditionalTargetGroups(value, groups, collectStringTarget, label) {
+  const conditionNames = new Set()
+  collectConditionNames(value, conditionNames)
+  if (conditionNames.size > maximumEnumeratedConditions) {
+    throw new Error(
+      `${label} contains too many custom conditions to verify exhaustively`
+    )
+  }
+  const names = [...conditionNames]
+  const combinationCount = 2 ** names.length
+  for (let mask = 0; mask < combinationCount; mask += 1) {
+    const activeConditions = new Set(['types'])
+    for (let index = 0; index < names.length; index += 1) {
+      if ((mask & 2 ** index) !== 0) activeConditions.add(names[index])
+    }
+    const resolution = resolveConditionalTarget(
+      value,
+      activeConditions,
+      groups,
+      collectStringTarget
+    )
+    if (resolution === resolutionInvalid) {
+      throw new Error(`${label} contains an invalid package target`)
+    }
+  }
+}
+
+function collectConditionNames(value, names) {
+  if (Array.isArray(value)) {
+    for (const entry of value) collectConditionNames(entry, names)
+    return
+  }
+  if (value === null || typeof value !== 'object') return
+  for (const [condition, entry] of Object.entries(value)) {
+    if (condition !== 'default' && condition !== 'types') names.add(condition)
+    collectConditionNames(entry, names)
+  }
+}
+
+function resolveConditionalTarget(value, activeConditions, groups, collectStringTarget) {
+  if (typeof value === 'string') return collectStringTarget(value, groups)
+  if (value === null) return resolutionResolved
+  if (value === undefined) return resolutionUndefined
+  if (Array.isArray(value)) {
+    if (value.length === 0) return resolutionResolved
+    let lastInvalid = false
+    for (const entry of value) {
+      const resolution = resolveConditionalTarget(
+        entry,
+        activeConditions,
+        groups,
+        collectStringTarget
+      )
+      if (resolution === resolutionResolved) return resolutionResolved
+      if (resolution === resolutionInvalid) lastInvalid = true
+    }
+    return lastInvalid ? resolutionInvalid : resolutionResolved
+  }
+  if (typeof value !== 'object') return resolutionInvalid
+
+  if (Object.keys(value).some(isArrayIndexKey)) return resolutionInvalid
+  for (const [condition, entry] of Object.entries(value)) {
+    if (
+      condition !== 'default'
+      && !activeConditions.has(condition)
+    ) continue
+    const resolution = resolveConditionalTarget(
+      entry,
+      activeConditions,
+      groups,
+      collectStringTarget
+    )
+    if (resolution !== resolutionUndefined) return resolution
+  }
+  return resolutionUndefined
+}
+
+function addSingletonTargetGroup(groups, target) {
+  if (!groups.some((group) => group.size === 1 && group.has(target))) {
+    groups.push(new Set([target]))
+  }
+}
+
+function isArrayIndexKey(key) {
+  const index = Number(key)
+  return (
+    Number.isInteger(index)
+    && index >= 0
+    && index < 2 ** 32 - 1
+    && String(index) === key
+  )
+}
+
+function isValidLocalPackageTarget(target) {
+  if (!target.startsWith('./') || target.includes('\\') || /%2f|%5c/i.test(target)) {
+    return false
+  }
+  for (const rawSegment of target.slice(2).split('/')) {
+    let segment
+    try {
+      segment = decodeURIComponent(rawSegment).split(/[?#]/, 1)[0]
+    } catch {
+      return false
+    }
+    if (
+      segment.length === 0
+      || segment === '.'
+      || segment === '..'
+      || segment.toLowerCase() === 'node_modules'
+    ) {
+      return false
+    }
+  }
+  return true
+}
+
+function isValidExternalPackageTarget(target) {
+  if (
+    target.length === 0
+    || target.startsWith('../')
+    || target.startsWith('/')
+    || target.includes('\\')
+    || target.includes('%')
+  ) {
+    return false
+  }
+  try {
+    new URL(target)
+    return false
+  } catch {
+    // Bare package targets are intentionally not valid URLs.
+  }
+  const parts = target.split('/')
+  const packageName = target.startsWith('@')
+    ? parts.slice(0, 2).join('/')
+    : parts[0]
+  return (
+    packageName.length > 0
+    && !packageName.startsWith('.')
+    && (!target.startsWith('@') || parts.length >= 2 && parts[1].length > 0)
+  )
+}
+
+function collectTypesVersionsTargetGroups(value, groups) {
+  if (typeof value === 'string') {
+    const packageTarget = value.startsWith('./') ? value : `./${value}`
+    groups.push(new Set([declarationTargetForExport(packageTarget) ?? packageTarget]))
+    return
+  }
+  if (Array.isArray(value)) {
+    const alternatives = new Set()
+    for (const entry of value) {
+      const entryGroups = []
+      collectTypesVersionsTargetGroups(entry, entryGroups)
+      for (const group of entryGroups) {
+        for (const target of group) alternatives.add(target)
+      }
+    }
+    if (alternatives.size > 0) groups.push(alternatives)
+    return
+  }
+  if (value !== null && typeof value === 'object') {
+    for (const entry of Object.values(value)) {
+      collectTypesVersionsTargetGroups(entry, groups)
+    }
+  }
+}
+
+async function resolveDeclarationTargetGroup(targets) {
+  const resolved = new Set()
   for (const target of targets) {
     if (!target.includes('*')) {
-      entrypoints.add(await resolvePackageDeclarationEntrypoint(target))
+      const entrypoint = await findPackageDeclarationEntrypoint(target)
+      if (entrypoint !== undefined) resolved.add(entrypoint)
       continue
     }
-    let matched = false
     for (const targetPattern of declarationTargetPatterns(target)) {
       const pattern = resolvePackageDeclaration(targetPattern)
       for await (const relativePath of glob(
@@ -119,60 +342,11 @@ async function collectPublicTypeEntrypoints(packageManifest) {
         { cwd: packageRoot }
       )) {
         if (!/\.d\.(?:c|m)?ts$/.test(relativePath)) continue
-        entrypoints.add(resolvePackageDeclaration(`./${normalizePath(relativePath)}`))
-        matched = true
+        resolved.add(resolvePackageDeclaration(`./${normalizePath(relativePath)}`))
       }
     }
-    if (!matched) {
-      throw new Error(`Public declaration pattern did not match any files: ${target}`)
-    }
   }
-
-  return [...entrypoints].sort((left, right) => left.localeCompare(right))
-}
-
-function collectDeclarationTargets(value, targets) {
-  if (typeof value === 'string') {
-    const declarationTarget = declarationTargetForExport(value)
-    if (declarationTarget !== undefined) targets.add(declarationTarget)
-    return
-  }
-  if (Array.isArray(value)) {
-    for (const entry of value) collectDeclarationTargets(entry, targets)
-    return
-  }
-  if (value !== null && typeof value === 'object') {
-    const explicitTypeConditions = Object.entries(value)
-      .filter(([condition]) => condition === 'types' || condition.startsWith('types@'))
-    if (explicitTypeConditions.length > 0) {
-      for (const [, entry] of explicitTypeConditions) {
-        collectDeclarationTargets(entry, targets)
-      }
-      for (const [condition, entry] of Object.entries(value)) {
-        if (condition === 'types' || condition.startsWith('types@')) continue
-        if (entry !== null && typeof entry === 'object') {
-          collectDeclarationTargets(entry, targets)
-        }
-      }
-      return
-    }
-    for (const entry of Object.values(value)) collectDeclarationTargets(entry, targets)
-  }
-}
-
-function collectTypesVersionsTargets(value, targets) {
-  if (typeof value === 'string') {
-    const packageTarget = value.startsWith('./') ? value : `./${value}`
-    targets.add(declarationTargetForExport(packageTarget) ?? packageTarget)
-    return
-  }
-  if (Array.isArray(value)) {
-    for (const entry of value) collectTypesVersionsTargets(entry, targets)
-    return
-  }
-  if (value !== null && typeof value === 'object') {
-    for (const entry of Object.values(value)) collectTypesVersionsTargets(entry, targets)
-  }
+  return [...resolved]
 }
 
 function declarationTargetForExport(target) {
@@ -220,7 +394,7 @@ function normalizeTopLevelTypesTarget(target) {
   return target.startsWith('./') ? target : `./${target}`
 }
 
-async function resolvePackageDeclarationEntrypoint(target) {
+async function findPackageDeclarationEntrypoint(target) {
   const unresolved = resolvePackageDeclaration(target)
   for (const candidate of declarationCandidates(unresolved)) {
     assertWithinPackage(candidate)
@@ -228,10 +402,10 @@ async function resolvePackageDeclarationEntrypoint(target) {
       await access(candidate)
       return candidate
     } catch (error) {
-      if (error?.code !== 'ENOENT') throw error
+      if (error?.code !== 'ENOENT' && error?.code !== 'ENOTDIR') throw error
     }
   }
-  throw new Error(`Public declaration target does not resolve to a declaration: ${target}`)
+  return undefined
 }
 
 async function collectReachableDeclarationFiles(entrypoints, packageManifest) {
@@ -554,11 +728,16 @@ async function assertDeclarationScanner(packageManifest) {
   const packageEntrypoints = await collectPublicTypeEntrypoints(packageManifest)
   const selfTestEntrypoint = packageEntrypoints[0]
   const selfTestTarget = `./${normalizePath(path.relative(packageRoot, selfTestEntrypoint))}`
+  const selfTestRuntimeTarget = selfTestTarget
+    .replace(/\.d\.mts$/, '.mjs')
+    .replace(/\.d\.cts$/, '.cjs')
+    .replace(/\.d\.ts$/, '.js')
   const mappedImportDeclarations = await resolvePackageImportDeclarations({
     imports: {
       '#model': {
+        custom: selfTestRuntimeTarget,
         types: selfTestTarget,
-        default: './missing-runtime.js'
+        default: './missing-after-types.js'
       }
     }
   }, '#model')
@@ -567,6 +746,30 @@ async function assertDeclarationScanner(packageManifest) {
     || mappedImportDeclarations[0] !== selfTestEntrypoint
   ) {
     throw new Error('Package import declaration mapping failed its internal invariant')
+  }
+  const fallbackImportDeclarations = await resolvePackageImportDeclarations({
+    imports: {
+      '#fallback': [selfTestRuntimeTarget, './missing-fallback.cjs']
+    }
+  }, '#fallback')
+  if (
+    fallbackImportDeclarations.length !== 1
+    || fallbackImportDeclarations[0] !== selfTestEntrypoint
+  ) {
+    throw new Error('Package import fallback mapping failed its internal invariant')
+  }
+  let missingPrimaryImportRejected = false
+  try {
+    await resolvePackageImportDeclarations({
+      imports: {
+        '#fallback': ['./missing-primary.cjs', selfTestRuntimeTarget]
+      }
+    }, '#fallback')
+  } catch (error) {
+    missingPrimaryImportRejected = String(error).includes('./missing-primary.d.cts')
+  }
+  if (!missingPrimaryImportRejected) {
+    throw new Error('Package import fallback order failed its internal invariant')
   }
   const entrypointDirectory = path.posix.dirname(selfTestTarget)
   const typesVersionsEntrypoints = await collectPublicTypeEntrypoints({
@@ -583,8 +786,10 @@ async function assertDeclarationScanner(packageManifest) {
   const explicitTypeEntrypoints = await collectPublicTypeEntrypoints({
     exports: {
       '.': {
+        custom: selfTestRuntimeTarget,
         types: selfTestTarget,
-        import: './missing-runtime.js'
+        import: './missing-after-types.js',
+        require: './missing-after-types.cjs'
       }
     }
   })
@@ -594,34 +799,177 @@ async function assertDeclarationScanner(packageManifest) {
   ) {
     throw new Error('Explicit export type condition handling failed its internal invariant')
   }
-  const nestedExportTargets = new Set()
-  collectDeclarationTargets({
+  const fallbackExportEntrypoints = await collectPublicTypeEntrypoints({
+    exports: {
+      '.': [selfTestRuntimeTarget, './missing-fallback.cjs']
+    }
+  })
+  if (
+    fallbackExportEntrypoints.length !== 1
+    || fallbackExportEntrypoints[0] !== selfTestEntrypoint
+  ) {
+    throw new Error('Export fallback mapping failed its internal invariant')
+  }
+  let missingPrimaryExportRejected = false
+  try {
+    await collectPublicTypeEntrypoints({
+      exports: {
+        '.': ['./missing-primary.cjs', selfTestRuntimeTarget]
+      }
+    })
+  } catch (error) {
+    missingPrimaryExportRejected = String(error).includes('./missing-primary.d.cts')
+  }
+  if (!missingPrimaryExportRejected) {
+    throw new Error('Export fallback order failed its internal invariant')
+  }
+  const conditionalFallbackGroups = []
+  collectDeclarationTargetGroups([
+    { browser: './browser.js' },
+    selfTestRuntimeTarget
+  ], conditionalFallbackGroups)
+  if (
+    JSON.stringify(
+      conditionalFallbackGroups.flatMap((group) => [...group]).sort()
+    )
+    !== JSON.stringify(['./browser.d.ts', selfTestTarget].sort())
+  ) {
+    throw new Error('Conditional export fallback reachability failed its internal invariant')
+  }
+  const terminalFallbackGroups = []
+  collectDeclarationTargetGroups([
+    {
+      browser: selfTestRuntimeTarget,
+      types: selfTestTarget
+    },
+    './missing-after-types.js'
+  ], terminalFallbackGroups)
+  if (
+    terminalFallbackGroups.some((group) => group.has('./missing-after-types.d.ts'))
+  ) {
+    throw new Error('Terminal export fallback handling failed its internal invariant')
+  }
+  const correlatedConditionGroups = []
+  collectDeclarationTargetGroups([
+    { browser: null },
+    {
+      browser: './missing-browser.js',
+      default: selfTestRuntimeTarget
+    }
+  ], correlatedConditionGroups)
+  const correlatedInvalidConditionGroups = []
+  collectDeclarationTargetGroups([
+    { browser: null },
+    {
+      browser: 'not:valid',
+      default: selfTestRuntimeTarget
+    }
+  ], correlatedInvalidConditionGroups)
+  if (
+    correlatedConditionGroups.length !== 1
+    || correlatedConditionGroups[0].has('./missing-browser.d.ts')
+    || correlatedInvalidConditionGroups.length !== 1
+  ) {
+    throw new Error('Correlated export conditions failed their internal invariant')
+  }
+  const invalidFallbackGroups = []
+  collectDeclarationTargetGroups(['not:valid', selfTestRuntimeTarget], invalidFallbackGroups)
+  const blockedFallbackGroups = []
+  collectDeclarationTargetGroups([null, selfTestRuntimeTarget], blockedFallbackGroups)
+  const nestedFallbackGroups = []
+  collectDeclarationTargetGroups([
+    [selfTestRuntimeTarget, './missing-nested-fallback.js'],
+    './missing-outer-fallback.js'
+  ], nestedFallbackGroups)
+  const nestedInvalidFallbackGroups = []
+  collectDeclarationTargetGroups([
+    ['not:valid'],
+    selfTestRuntimeTarget
+  ], nestedInvalidFallbackGroups)
+  const extensionlessGroups = []
+  collectDeclarationTargetGroups('./feature', extensionlessGroups)
+  let invalidConditionRejected = false
+  try {
+    collectDeclarationTargetGroups({
+      default: 'not:valid',
+      types: selfTestTarget
+    }, [])
+  } catch (error) {
+    invalidConditionRejected = String(error).includes('invalid package target')
+  }
+  let indexedConditionRejected = false
+  try {
+    collectDeclarationTargetGroups({ 0: selfTestTarget }, [])
+  } catch (error) {
+    indexedConditionRejected = String(error).includes('invalid package target')
+  }
+  if (
+    invalidFallbackGroups.length !== 1
+    || blockedFallbackGroups.length !== 0
+    || nestedFallbackGroups.length !== 1
+    || nestedFallbackGroups[0].has('./missing-nested-fallback.d.ts')
+    || nestedInvalidFallbackGroups.length !== 1
+    || extensionlessGroups.length !== 1
+    || !extensionlessGroups[0].has('./feature')
+    || !invalidConditionRejected
+    || !indexedConditionRejected
+  ) {
+    throw new Error('Export fallback terminal handling failed its internal invariant')
+  }
+  const invalidImportFallbackGroups = []
+  collectPackageImportTargetGroups([
+    '../invalid.js',
+    selfTestRuntimeTarget
+  ], undefined, invalidImportFallbackGroups)
+  const externalImportFallbackGroups = []
+  collectPackageImportTargetGroups([
+    '@authmodules/contracts',
+    './missing-after-external.js'
+  ], undefined, externalImportFallbackGroups)
+  if (
+    invalidImportFallbackGroups.length !== 1
+    || externalImportFallbackGroups.length !== 0
+  ) {
+    throw new Error('Package import target validation failed its internal invariant')
+  }
+  const nestedExportGroups = []
+  collectDeclarationTargetGroups({
     custom: {
+      browser: './nested-browser.js',
       types: './nested.d.ts',
-      default: './missing-nested-runtime.js'
+      default: './nested-default.js'
     },
     types: './root.d.ts',
-    default: './missing-root-runtime.js'
-  }, nestedExportTargets)
+    default: './root-default.js'
+  }, nestedExportGroups)
+  const nestedExportTargets = new Set(
+    nestedExportGroups.flatMap((group) => [...group])
+  )
   if (
     JSON.stringify([...nestedExportTargets].sort()) !== JSON.stringify([
+      './nested-browser.d.ts',
       './nested.d.ts',
       './root.d.ts'
     ])
   ) {
     throw new Error('Nested export type condition handling failed its internal invariant')
   }
-  const nestedImportTargets = []
-  collectPackageImportTargets({
+  const nestedImportGroups = []
+  collectPackageImportTargetGroups({
+    browser: './custom-*.js',
     custom: {
-      types: './nested-*.d.ts',
-      default: './missing-nested-runtime.js'
+      browser: './nested-browser-*.js',
+      types: './nested-*.d.ts'
     },
     types: './root-*.d.ts',
-    default: './missing-root-runtime.js'
-  }, 'model', nestedImportTargets)
+    default: './missing-after-types-*.js'
+  }, 'model', nestedImportGroups)
+  const nestedImportTargets = new Set(
+    nestedImportGroups.flatMap((group) => [...group])
+  )
   if (
-    JSON.stringify(nestedImportTargets.sort()) !== JSON.stringify([
+    JSON.stringify([...nestedImportTargets].sort()) !== JSON.stringify([
+      './custom-model.d.ts',
       './nested-model.d.ts',
       './root-model.d.ts'
     ])
@@ -675,7 +1023,7 @@ async function resolveRelativeDeclaration(importer, specifier) {
       await access(candidate)
       return candidate
     } catch (error) {
-      if (error?.code !== 'ENOENT') throw error
+      if (error?.code !== 'ENOENT' && error?.code !== 'ENOTDIR') throw error
     }
   }
   throw new Error(
@@ -728,43 +1076,43 @@ async function resolvePackageImportDeclarations(packageManifest, specifier) {
   if (mapping === undefined) {
     throw new Error(`${specifier} is not mapped by package.json imports`)
   }
-  const targets = []
-  collectPackageImportTargets(mapping, wildcardValue, targets)
-  return Promise.all(targets.map(resolvePackageDeclarationEntrypoint))
+  const targetGroups = []
+  collectPackageImportTargetGroups(mapping, wildcardValue, targetGroups)
+  const declarations = new Set()
+  for (const targetGroup of targetGroups) {
+    const resolved = await resolveDeclarationTargetGroup(targetGroup)
+    if (resolved.length === 0) {
+      throw new Error(
+        `${specifier} declaration target did not resolve from: ${[...targetGroup].join(', ')}`
+      )
+    }
+    for (const declaration of resolved) declarations.add(declaration)
+  }
+  return [...declarations]
 }
 
-function collectPackageImportTargets(value, wildcardValue, targets) {
-  if (typeof value === 'string') {
-    if (!value.startsWith('./')) return
-    const substituted = wildcardValue === undefined
-      ? value
-      : value.replaceAll('*', wildcardValue)
-    targets.push(declarationTargetForExport(substituted) ?? substituted)
-    return
-  }
-  if (Array.isArray(value)) {
-    for (const entry of value) collectPackageImportTargets(entry, wildcardValue, targets)
-    return
-  }
-  if (value !== null && typeof value === 'object') {
-    const explicitTypeConditions = Object.entries(value)
-      .filter(([condition]) => condition === 'types' || condition.startsWith('types@'))
-    if (explicitTypeConditions.length > 0) {
-      for (const [, entry] of explicitTypeConditions) {
-        collectPackageImportTargets(entry, wildcardValue, targets)
+function collectPackageImportTargetGroups(value, wildcardValue, groups) {
+  collectConditionalTargetGroups(
+    value,
+    groups,
+    (target, targetGroups) => {
+      if (!target.startsWith('./')) {
+        return isValidExternalPackageTarget(target)
+          ? resolutionResolved
+          : resolutionInvalid
       }
-      for (const [condition, entry] of Object.entries(value)) {
-        if (condition === 'types' || condition.startsWith('types@')) continue
-        if (entry !== null && typeof entry === 'object') {
-          collectPackageImportTargets(entry, wildcardValue, targets)
-        }
-      }
-      return
-    }
-    for (const entry of Object.values(value)) {
-      collectPackageImportTargets(entry, wildcardValue, targets)
-    }
-  }
+      const substituted = wildcardValue === undefined
+        ? target
+        : target.replaceAll('*', wildcardValue)
+      if (!isValidLocalPackageTarget(substituted)) return resolutionInvalid
+      addSingletonTargetGroup(
+        targetGroups,
+        declarationTargetForExport(substituted) ?? substituted
+      )
+      return resolutionResolved
+    },
+    'Package imports'
+  )
 }
 
 async function enforcePullRequestVersionPolicy(currentSnapshot, currentVersion) {

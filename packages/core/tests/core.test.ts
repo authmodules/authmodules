@@ -129,6 +129,49 @@ test('method validation snapshots mutable values and raw secrets before asynchro
   assert.equal(validated.value.value.password.reveal(), 'original-secret')
 })
 
+test('method value snapshots preserve own __proto__ properties without changing prototypes', () => {
+  const payload = JSON.parse(
+    '{"__proto__":{"approved":true},"nested":{"__proto__":"retained"},"normal":1}'
+  )
+  const validated = invokeMethodValidation(
+    () => ({ ok: true, value: { value: payload } }),
+    {},
+    {
+      method: { methodId: 'test.snapshot', methodKind: 'test' },
+      auth: { tenantId: 'tenant_1' },
+      now: new Date('2026-01-01T00:00:00.000Z')
+    }
+  )
+
+  assert.equal(validated.ok, true)
+  assert.equal(Object.getPrototypeOf(validated.value.value), Object.prototype)
+  assert.equal(Object.hasOwn(validated.value.value, '__proto__'), true)
+  assert.deepEqual(validated.value.value.__proto__, { approved: true })
+  assert.equal(Object.getPrototypeOf(validated.value.value.nested), Object.prototype)
+  assert.equal(Object.hasOwn(validated.value.value.nested, '__proto__'), true)
+  assert.equal(validated.value.value.nested.__proto__, 'retained')
+  assert.equal(validated.value.value.normal, 1)
+
+  const nullPrototypePayload = Object.create(null)
+  Object.defineProperty(nullPrototypePayload, '__proto__', {
+    enumerable: true,
+    value: 'null-prototype-retained'
+  })
+  const nullPrototypeValidated = invokeMethodValidation(
+    () => ({ ok: true, value: { value: nullPrototypePayload } }),
+    {},
+    {
+      method: { methodId: 'test.snapshot', methodKind: 'test' },
+      auth: { tenantId: 'tenant_1' },
+      now: new Date('2026-01-01T00:00:00.000Z')
+    }
+  )
+  assert.equal(nullPrototypeValidated.ok, true)
+  assert.equal(Object.getPrototypeOf(nullPrototypeValidated.value.value), Object.prototype)
+  assert.equal(Object.hasOwn(nullPrototypeValidated.value.value, '__proto__'), true)
+  assert.equal(nullPrototypeValidated.value.value.__proto__, 'null-prototype-retained')
+})
+
 test('method value snapshots cover binary and persisted secret wrappers and reject unsafe object graphs', () => {
   const now = new Date('2026-01-01T00:00:00.000Z')
   const bytes = new Uint8Array([1, 2, 3])

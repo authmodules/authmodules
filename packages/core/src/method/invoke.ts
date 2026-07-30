@@ -134,7 +134,12 @@ function snapshotMethodValue(
       state.visiting.delete(value)
       return invalidSnapshot
     }
-    result[key] = snapshot
+    Object.defineProperty(result, key, {
+      configurable: true,
+      enumerable: true,
+      value: snapshot,
+      writable: true
+    })
   }
   state.visiting.delete(value)
   return result
@@ -272,7 +277,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 function snapshotOwnDataProperties(value: object): OwnDataSnapshot | null {
   const descriptors = Object.getOwnPropertyDescriptors(value)
-  const properties: Record<string, unknown> = {}
+  const properties: Record<string, unknown> = Object.create(null)
   let arrayLength: number | undefined
   for (const key of Reflect.ownKeys(descriptors)) {
     if (typeof key === 'symbol') return null
@@ -290,7 +295,12 @@ function snapshotOwnDataProperties(value: object): OwnDataSnapshot | null {
     if (!descriptor
       || !descriptor.enumerable
       || !Object.hasOwn(descriptor, 'value')) return null
-    properties[key] = descriptor.value
+    Object.defineProperty(properties, key, {
+      configurable: true,
+      enumerable: true,
+      value: descriptor.value,
+      writable: true
+    })
   }
   if (Array.isArray(value) && arrayLength === undefined) return null
   return { values: properties, arrayLength }

@@ -2,7 +2,11 @@ import { execFile } from 'node:child_process'
 import { appendFile, readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import { isExactVersion, packageRepositories } from './release-manifest.js'
+import {
+  assertReleasePleaseManifest,
+  isExactVersion,
+  packageRepositories
+} from './release-manifest.js'
 
 const execFileAsync = promisify(execFile)
 const baseSha = requiredSha('AUTHMODULES_BASE_SHA')
@@ -21,8 +25,11 @@ const knownPaths = new Map(
   packageRepositories.map((name) => [`packages/${name}`, name])
 )
 
-assertManifest(currentManifest, knownPaths)
-assertManifest(previousManifest, knownPaths)
+assertReleasePleaseManifest(currentManifest, { label: 'Current release manifest' })
+assertReleasePleaseManifest(previousManifest, {
+  allowEmpty: true,
+  label: 'Previous release manifest'
+})
 
 const changed = []
 for (const [packagePath, name] of knownPaths) {
@@ -85,13 +92,6 @@ function parseManifest(source, label) {
     throw new Error(`${label} must be an object`)
   }
   return value
-}
-
-function assertManifest(manifest, known) {
-  for (const [packagePath, version] of Object.entries(manifest)) {
-    if (!known.has(packagePath)) throw new Error(`Unknown release path: ${packagePath}`)
-    if (!isExactVersion(version)) throw new Error(`${packagePath} has an invalid version`)
-  }
 }
 
 async function gitShow(ref, filePath) {

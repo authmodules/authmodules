@@ -34,6 +34,8 @@ jobs:
       - name: Detect bootstrap or release manifest
         id: trigger
         run: node scripts/detect-release-trigger.js
+        env:
+          AUTHMODULES_BASE_SHA: ${{ github.event.before }}
       - name: Verify Release Please merge
         if: steps.trigger.outputs.release == 'true'
         run: node scripts/verify-release-commit.js

@@ -2,7 +2,13 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import test from 'node:test'
-import { isExactIntegrity, isExactVersion, packageRepositories } from '../scripts/release-manifest.js'
+import {
+  assertReleasePleaseManifest,
+  isExactIntegrity,
+  isExactVersion,
+  packageRepositories,
+  shouldPublishReleaseManifest
+} from '../scripts/release-manifest.js'
 
 const root = path.resolve(import.meta.dirname, '..')
 const integrity = `sha512-${'A'.repeat(86)}==`
@@ -15,7 +21,9 @@ test('root workspaces and Release Please paths describe the complete package set
 
   assert.deepEqual(rootManifest.workspaces, expectedPaths)
   assert.deepEqual(Object.keys(releaseConfig.packages), expectedPaths)
-  assert.deepEqual(releaseManifest, {})
+  assert.doesNotThrow(() => {
+    assertReleasePleaseManifest(releaseManifest, { allowEmpty: true })
+  })
   assert.equal(releaseConfig['release-type'], 'node')
   assert.equal(releaseConfig['initial-version'], '0.1.0')
   assert.equal(releaseConfig['separate-pull-requests'], false)
@@ -39,6 +47,9 @@ test('release automation is manual, exact-head, and publication-gated', async ()
   const releasePullRequestWorkflow = await readText('.github/workflows/release-pr.yml')
   const publishWorkflow = await readText('.github/workflows/release-publish.yml')
   const dispatchScript = await readText('scripts/dispatch-release-pr-check.js')
+  const releasePlanScript = await readText('scripts/create-release-plan.js')
+  const releaseTriggerScript = await readText('scripts/detect-release-trigger.js')
+  const releaseVerificationScript = await readText('scripts/verify-release-publication.js')
 
   assert.match(releasePullRequestWorkflow, /on:\n  workflow_dispatch:\n/)
   assert.doesNotMatch(releasePullRequestWorkflow, /\n  push:/)
@@ -48,6 +59,20 @@ test('release automation is manual, exact-head, and publication-gated', async ()
   assert.match(
     publishWorkflow,
     /paths:\n      - \.release-please-manifest\.json/
+  )
+  assert.match(
+    releasePlanScript,
+    /assertReleasePleaseManifest\(currentManifest, \{ label: 'Current release manifest' \}\)/
+  )
+  assert.match(
+    releaseTriggerScript,
+    /shouldPublishReleaseManifest\(previousManifest, manifest\)/
+  )
+  assert.match(releaseTriggerScript, /if \(ref === '0'\.repeat\(40\)\) return \{\}/)
+  assert.match(publishWorkflow, /AUTHMODULES_BASE_SHA: \$\{\{ github\.event\.before \}\}/)
+  assert.match(
+    releaseVerificationScript,
+    /assertReleasePleaseManifest\(currentManifest, \{ label: 'Current release manifest' \}\)/
   )
   assert.ok(
     publishWorkflow.indexOf('Verify published packages and clean consumer')
@@ -102,6 +127,75 @@ test('package integrities require one canonical SHA-512 SRI digest', () => {
   assert.equal(isExactIntegrity(`sha512-${'A'.repeat(85)}==`), false)
   assert.equal(isExactIntegrity(`sha512-${'A'.repeat(86)}=`), false)
   assert.equal(isExactIntegrity(`${integrity} ${integrity}`), false)
+})
+
+test('release manifests are either empty bootstrap state or the complete package set', () => {
+  const complete = Object.fromEntries(
+    packageRepositories.map((name) => [`packages/${name}`, '0.1.0'])
+  )
+
+  assert.doesNotThrow(() => assertReleasePleaseManifest({}, { allowEmpty: true }))
+  assert.doesNotThrow(() => assertReleasePleaseManifest(complete))
+  assert.throws(
+    () => assertReleasePleaseManifest({ 'packages/contracts': '0.1.0' }, { allowEmpty: true }),
+    /missing:/
+  )
+  assert.throws(
+    () => assertReleasePleaseManifest({ ...complete, 'packages/unknown': '0.1.0' }),
+    /unknown: packages\/unknown/
+  )
+  assert.throws(
+    () => assertReleasePleaseManifest({ ...complete, 'packages/contracts': '^0.1.0' }),
+    /invalid version for packages\/contracts/
+  )
+  assert.throws(() => assertReleasePleaseManifest({}), /missing:/)
+
+  assert.throws(
+    () => assertReleasePleaseManifest(Object.create({ inherited: true }), { allowEmpty: true }),
+    /plain data object/
+  )
+  const symbolManifest = Object.create(null)
+  symbolManifest[Symbol('unknown')] = '0.1.0'
+  assert.throws(
+    () => assertReleasePleaseManifest(symbolManifest, { allowEmpty: true }),
+    /only string package paths/
+  )
+  const nonEnumerableManifest = { ...complete }
+  Object.defineProperty(nonEnumerableManifest, 'packages/unknown', {
+    value: '0.1.0'
+  })
+  assert.throws(
+    () => assertReleasePleaseManifest(nonEnumerableManifest),
+    /only enumerable data properties/
+  )
+  let accessorReads = 0
+  const accessorManifest = { ...complete }
+  Object.defineProperty(accessorManifest, 'packages/contracts', {
+    enumerable: true,
+    get() {
+      accessorReads += 1
+      return '0.1.0'
+    }
+  })
+  assert.throws(
+    () => assertReleasePleaseManifest(accessorManifest),
+    /only enumerable data properties/
+  )
+  assert.equal(accessorReads, 0)
+})
+
+test('release manifest transitions cannot return to bootstrap state', () => {
+  const complete = Object.fromEntries(
+    packageRepositories.map((name) => [`packages/${name}`, '0.1.0'])
+  )
+
+  assert.equal(shouldPublishReleaseManifest({}, {}), false)
+  assert.equal(shouldPublishReleaseManifest({}, complete), true)
+  assert.equal(shouldPublishReleaseManifest(complete, complete), true)
+  assert.throws(
+    () => shouldPublishReleaseManifest(complete, {}),
+    /cannot transition back to bootstrap state/
+  )
 })
 
 async function readJson(relativePath) {

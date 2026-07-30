@@ -2,7 +2,12 @@ import { execFile } from 'node:child_process'
 import { readFile, readdir } from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import { isExactIntegrity, isExactVersion, packageRepositories } from './release-manifest.js'
+import {
+  assertReleasePleaseManifest,
+  isExactIntegrity,
+  isExactVersion,
+  packageRepositories
+} from './release-manifest.js'
 
 const execFileAsync = promisify(execFile)
 const root = path.resolve(import.meta.dirname, '..')
@@ -14,6 +19,11 @@ const currentManifest = parseManifest(
   await readFile(path.join(root, '.release-please-manifest.json'), 'utf8')
 )
 const previousManifest = parseManifest(await gitShow(baseSha, '.release-please-manifest.json'))
+assertReleasePleaseManifest(currentManifest, { label: 'Current release manifest' })
+assertReleasePleaseManifest(previousManifest, {
+  allowEmpty: true,
+  label: 'Previous release manifest'
+})
 const evidenceFiles = (await collectFiles(evidenceRoot))
   .filter((filePath) => filePath.endsWith('.evidence.json'))
 const evidenceByPackage = new Map()
