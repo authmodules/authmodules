@@ -6,47 +6,46 @@ import { packageRepositories } from './release-manifest.js'
 
 const requiredRepositories = packageRepositories
 
-const root = new URL('../..', import.meta.url)
+const root = new URL('../', import.meta.url)
 const rootPath = fileURLToPath(root)
-const canonicalApiChecker = await readFile(
-  new URL('authmodules/scripts/check-package-api.js', root),
-  'utf8'
-)
-const canonicalCodeql = await readFile(
-  new URL('authmodules/templates/codeql.yml', root),
-  'utf8'
-)
-const canonicalDependencyReview = await readFile(
-  new URL('authmodules/templates/dependency-review.yml', root),
-  'utf8'
-)
-const canonicalDependabot = await readFile(
-  new URL('authmodules/templates/dependabot.yml', root),
-  'utf8'
-)
-const canonicalRelease = await readFile(
-  new URL('authmodules/templates/release.yml', root),
-  'utf8'
-)
-
-for (const repository of ['authmodules', '.github', ...requiredRepositories]) {
-  await assertNoWorkspaceArtifacts(new URL(`${repository}/`, root))
+const rootManifest = JSON.parse(await readFile(new URL('package.json', root), 'utf8'))
+const expectedWorkspaces = requiredRepositories.map((repository) => `packages/${repository}`)
+if (JSON.stringify(rootManifest.workspaces) !== JSON.stringify(expectedWorkspaces)) {
+  throw new Error('Root workspaces must list every package exactly once in the canonical order')
 }
 
+await access(new URL('package-lock.json', root))
+await assertNoWorkspaceArtifacts(root)
+
 for (const repository of requiredRepositories) {
-  await access(new URL(`${repository}/.git`, root))
-  await access(new URL(`${repository}/tests`, root))
-  const manifestUrl = new URL(`${repository}/package.json`, root)
+  const packageUrl = new URL(`packages/${repository}/`, root)
+  await access(new URL('tests/', packageUrl))
+  const manifestUrl = new URL('package.json', packageUrl)
   await access(manifestUrl)
   const manifest = JSON.parse(await readFile(manifestUrl, 'utf8'))
+  if (manifest.name !== `@authmodules/${repository}`) {
+    throw new Error(`${repository} must retain its public package name`)
+  }
   if (!manifest.scripts?.test?.includes('tests')) {
     throw new Error(`${repository} must run tests from tests/`)
   }
   if (!manifest.scripts.test.includes('.ts')) {
     throw new Error(`${repository} must run TypeScript tests from tests/`)
   }
-  if (!manifest.repository?.url?.includes(`authmodules/${repository}.git`)) {
-    throw new Error(`${repository} must declare its GitHub repository metadata`)
+  if (
+    manifest.repository?.url !== 'git+https://github.com/authmodules/authmodules.git'
+    || manifest.repository?.directory !== `packages/${repository}`
+  ) {
+    throw new Error(`${repository} must point to its monorepo directory`)
+  }
+  if (manifest.bugs?.url !== 'https://github.com/authmodules/authmodules/issues') {
+    throw new Error(`${repository} must use the monorepo issue tracker`)
+  }
+  if (
+    manifest.homepage
+    !== `https://github.com/authmodules/authmodules/tree/main/packages/${repository}#readme`
+  ) {
+    throw new Error(`${repository} must use its monorepo package homepage`)
   }
   if (manifest.publishConfig?.registry !== 'https://npm.pkg.github.com') {
     throw new Error(`${repository} must declare GitHub Packages as its publish registry`)
@@ -54,33 +53,14 @@ for (const repository of requiredRepositories) {
   if (manifest.scripts?.prepack !== 'npm run build') {
     throw new Error(`${repository} must build before pack`)
   }
-  const apiChecker = await readFile(
-    new URL(`${repository}/scripts/check-package-api.js`, root),
-    'utf8'
-  )
-  if (apiChecker !== canonicalApiChecker) {
-    throw new Error(`${repository} public API checker must match the central audited implementation`)
+  if (
+    manifest.scripts?.['api:check'] !== 'node ../../scripts/check-package-api.js'
+    || manifest.scripts?.['api:update']
+      !== 'npm run build && node ../../scripts/check-package-api.js --write'
+  ) {
+    throw new Error(`${repository} must use the root public API checker`)
   }
-  await assertFileMatches(
-    `${repository}/.github/workflows/codeql.yml`,
-    canonicalCodeql,
-    `${repository} CodeQL workflow`
-  )
-  await assertFileMatches(
-    `${repository}/.github/workflows/dependency-review.yml`,
-    canonicalDependencyReview,
-    `${repository} dependency review workflow`
-  )
-  await assertFileMatches(
-    `${repository}/.github/dependabot.yml`,
-    canonicalDependabot,
-    `${repository} Dependabot configuration`
-  )
-  await assertFileMatches(
-    `${repository}/.github/workflows/release.yml`,
-    canonicalRelease.replaceAll('__PACKAGE__', repository),
-    `${repository} release workflow`
-  )
+  await assertNoNestedRepositoryArtifacts(packageUrl)
   await assertNoAnyTypes(repository)
   if (repository !== 'contracts') {
     await assertRuntimeTypeScriptPackage(repository, manifest)
@@ -88,7 +68,7 @@ for (const repository of requiredRepositories) {
 }
 
 async function assertNoAnyTypes(repository) {
-  const sourceRoot = new URL(`${repository}/src/`, root)
+  const sourceRoot = new URL(`packages/${repository}/src/`, root)
   const files = await collectTypeScriptFiles(sourceRoot)
 
   for (const fileUrl of files) {
@@ -168,9 +148,8 @@ function isForbiddenWorkspaceArtifact(name) {
 }
 
 async function assertRuntimeTypeScriptPackage(repository, manifest) {
-  const entrypointUrl = new URL(`${repository}/src/index.ts`, root)
+  const entrypointUrl = new URL(`packages/${repository}/src/index.ts`, root)
   await access(entrypointUrl)
-  await access(new URL(`${repository}/.github/workflows/check.yml`, root))
 
   const entrypoint = await readFile(entrypointUrl, 'utf8')
   const entrypointProgram = parseTypeScript(entrypoint, fileURLToPath(entrypointUrl))
@@ -213,7 +192,9 @@ async function assertRuntimeTypeScriptPackage(repository, manifest) {
     throw new Error(`${repository} must smoke test dist/index.js`)
   }
 
-  const tsconfig = JSON.parse(await readFile(new URL(`${repository}/tsconfig.json`, root), 'utf8'))
+  const tsconfig = JSON.parse(
+    await readFile(new URL(`packages/${repository}/tsconfig.json`, root), 'utf8')
+  )
   if (tsconfig.compilerOptions?.strict !== true || 'noCheck' in (tsconfig.compilerOptions ?? {})) {
     throw new Error(`${repository} must use strict TypeScript without noCheck`)
   }
@@ -228,10 +209,23 @@ async function assertRuntimeTypeScriptPackage(repository, manifest) {
   }
 }
 
-async function assertFileMatches(relativePath, expected, label) {
-  const actual = await readFile(new URL(relativePath, root), 'utf8')
-  if (actual !== expected) {
-    throw new Error(`${label} must match the central audited template`)
+async function assertNoNestedRepositoryArtifacts(packageUrl) {
+  const forbidden = [
+    '.git',
+    '.github',
+    'package-lock.json',
+    'scripts/check-package-api.js'
+  ]
+  for (const relativePath of forbidden) {
+    try {
+      await access(new URL(relativePath, packageUrl))
+      throw new Error(
+        `${path.relative(rootPath, fileURLToPath(new URL(relativePath, packageUrl)))} `
+        + 'must not exist in a workspace package'
+      )
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error
+    }
   }
 }
 

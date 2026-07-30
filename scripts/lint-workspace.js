@@ -39,9 +39,7 @@ for (const file of files.filter((candidate) => candidate.endsWith('.md'))) {
   const rootRelativeLinks = [...content.matchAll(/\]\(\s*(\/[^)]*)\)/g)]
   for (const [, destination] of rootRelativeLinks) {
     const [target] = destination.trim().split(/\s+/, 1)
-    if (!target.startsWith('/authmodules/')) {
-      fail(`${relativePath} contains an unsupported root-relative markdown link: ${target}`)
-    }
+    fail(`${relativePath} contains a root-relative markdown link: ${target}`)
   }
 
   if (content.includes('file://')) {

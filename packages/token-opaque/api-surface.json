@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "package": "@authmodules/token-opaque",
+  "entrypoints": {
+    "type": "module",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js"
+      },
+      "./package.json": "./package.json"
+    }
+  },
+  "compatibility": {
+    "engines": {
+      "node": ">=24"
+    },
+    "peerDependencies": {
+      "@authmodules/contracts": "^0.1.0"
+    },
+    "peerDependenciesMeta": null,
+    "typesVersions": null,
+    "sideEffects": false
+  },
+  "declarations": [
+    {
+      "path": "dist/format/create-opaque-token-format.d.ts",
+      "sha256": "e307478900d6fef2874d1b2f9da8561645fd22085c16dc61538e03058e4f565f"
+    },
+    {
+      "path": "dist/format/types.d.ts",
+      "sha256": "7b3d8bc2b22d7551bafeebe2e12331412ca1d842643d9f53387f7c2c74b7d86a"
+    },
+    {
+      "path": "dist/index.d.ts",
+      "sha256": "249c1eb921cc2f7b5c4acdd9f8e2f9ce06ed2f63a27f76af024b409a040f1d91"
+    }
+  ]
+}

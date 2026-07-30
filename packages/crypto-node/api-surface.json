@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "package": "@authmodules/crypto-node",
+  "entrypoints": {
+    "type": "module",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js"
+      },
+      "./package.json": "./package.json"
+    }
+  },
+  "compatibility": {
+    "engines": {
+      "node": ">=24"
+    },
+    "peerDependencies": {
+      "@authmodules/contracts": "^0.1.0"
+    },
+    "peerDependenciesMeta": null,
+    "typesVersions": null,
+    "sideEffects": false
+  },
+  "declarations": [
+    {
+      "path": "dist/index.d.ts",
+      "sha256": "ac331ba99b1a7dcb7053010d61de0c8501033bcbf184c8c4445f1290bbfdc05d"
+    },
+    {
+      "path": "dist/password/create-node-password-hasher.d.ts",
+      "sha256": "6ed74b449eecaf0a0327fac95bffc57a97a59d2d29c4404ee8e1cd675e3c5741"
+    },
+    {
+      "path": "dist/password/types.d.ts",
+      "sha256": "0b13ca4050af40114e2a6261b1d3a0c10282c595c0cd216452ce2ed4f1e2e157"
+    },
+    {
+      "path": "dist/provider/create-node-crypto-provider.d.ts",
+      "sha256": "f952f6853181aa6ab25a53337af8d3506b930d031538be13e5098e623e29a597"
+    },
+    {
+      "path": "dist/sealing/create-node-secret-sealer.d.ts",
+      "sha256": "2839aaf5477bc7a8276cd658f548172c0f3381b43fa803fd37b685f2712ed809"
+    },
+    {
+      "path": "dist/sealing/types.d.ts",
+      "sha256": "029c6376a98f396babd67288acaafca4f973dbbb0f78c81e2c4e8508fa0249d5"
+    },
+    {
+      "path": "dist/values/factories.d.ts",
+      "sha256": "13ffe6229628242bf51213d879c614f43dc24eefe827e8ebba4dbfe4c4e746fc"
+    }
+  ]
+}

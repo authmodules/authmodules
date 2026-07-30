@@ -21,7 +21,7 @@ if (typeof contractsDirectory !== 'string' || contractsDirectory.length === 0) {
 if (typeof evidenceDirectory !== 'string' || evidenceDirectory.length === 0) {
   throw new Error('AUTHMODULES_EVIDENCE_DIRECTORY is required')
 }
-if (!isExactIntegrity(expectedIntegrity)) {
+if (expectedIntegrity !== undefined && !isExactIntegrity(expectedIntegrity)) {
   throw new Error('AUTHMODULES_EXPECTED_INTEGRITY must be an exact SHA-512 digest')
 }
 if (typeof outputPath !== 'string' || outputPath.length === 0) {
@@ -40,18 +40,32 @@ assertSupportedDependencies(packageManifest)
 await mkdir(evidenceRoot, { recursive: true })
 
 const packResult = await packPackage(packageRoot, evidenceRoot)
-if (packResult.integrity !== expectedIntegrity) {
+if (expectedIntegrity !== undefined && packResult.integrity !== expectedIntegrity) {
   throw new Error(`${packageManifest.name}@${packageManifest.version} tarball does not match the release plan integrity`)
 }
 
 const tarballPath = path.join(evidenceRoot, packResult.filename)
+const evidencePath = path.join(
+  evidenceRoot,
+  `${packageManifest.name.slice('@authmodules/'.length)}-${packageManifest.version}.evidence.json`
+)
 const sbomPath = path.join(
   evidenceRoot,
   `${packageManifest.name.slice('@authmodules/'.length)}-${packageManifest.version}.cdx.json`
 )
 await writeFile(sbomPath, `${JSON.stringify(createSbom(packageManifest, contractsManifest), null, 2)}\n`)
+await writeFile(evidencePath, `${JSON.stringify({
+  schemaVersion: 1,
+  package: packageManifest.name,
+  version: packageManifest.version,
+  integrity: packResult.integrity,
+  tarball: packResult.filename,
+  sbom: path.basename(sbomPath)
+}, null, 2)}\n`)
 await appendFile(outputPath, `package_tarball=${tarballPath}\n`)
 await appendFile(outputPath, `sbom_path=${sbomPath}\n`)
+await appendFile(outputPath, `evidence_path=${evidencePath}\n`)
+await appendFile(outputPath, `package_integrity=${packResult.integrity}\n`)
 
 console.log(`${packageManifest.name}@${packageManifest.version} release evidence prepared`)
 

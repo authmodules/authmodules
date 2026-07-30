@@ -1,0 +1,255 @@
+name: Publish release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .release-please-manifest.json
+
+concurrency:
+  group: release-publish-main
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      count: ${{ steps.release_plan.outputs.count }}
+      matrix: ${{ steps.release_plan.outputs.matrix }}
+      release: ${{ steps.trigger.outputs.release }}
+    steps:
+      - name: Checkout release commit
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Detect bootstrap or release manifest
+        id: trigger
+        run: node scripts/detect-release-trigger.js
+      - name: Verify Release Please merge
+        if: steps.trigger.outputs.release == 'true'
+        run: node scripts/verify-release-commit.js
+        env:
+          AUTHMODULES_BASE_SHA: ${{ github.event.before }}
+          AUTHMODULES_HEAD_SHA: ${{ github.sha }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create changed package matrix
+        if: steps.trigger.outputs.release == 'true'
+        id: release_plan
+        run: node scripts/create-release-plan.js
+        env:
+          AUTHMODULES_BASE_SHA: ${{ github.event.before }}
+          AUTHMODULES_HEAD_SHA: ${{ github.sha }}
+
+  check:
+    if: needs.plan.outputs.release == 'true'
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_DB: authmodules
+          POSTGRES_PASSWORD: authmodules
+          POSTGRES_USER: authmodules
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U authmodules -d authmodules"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout release commit
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install exact npm
+        run: npm install --global npm@11.16.0
+      - name: Install workspace dependencies
+        run: npm ci
+      - name: Check exact release commit
+        run: npm run check
+        env:
+          AUTHMODULES_POSTGRES_URL: postgres://authmodules:authmodules@127.0.0.1:5432/authmodules
+
+  publish:
+    if: needs.plan.outputs.release == 'true'
+    needs:
+      - plan
+      - check
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: github-packages
+    permissions:
+      artifact-metadata: write
+      attestations: write
+      contents: read
+      id-token: write
+      packages: write
+    steps:
+      - name: Checkout release commit
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          registry-url: https://npm.pkg.github.com
+          scope: '@authmodules'
+      - name: Install exact npm
+        run: npm install --global npm@11.16.0
+      - name: Install workspace dependencies
+        run: npm ci
+      - name: Build package
+        run: npm run build --workspace "${PACKAGE_NAME}"
+        env:
+          PACKAGE_NAME: ${{ matrix.package }}
+      - name: Prepare exact tarball and SBOM
+        id: evidence
+        run: node scripts/prepare-package-release-evidence.js
+        env:
+          AUTHMODULES_CONTRACTS_DIRECTORY: packages/contracts
+          AUTHMODULES_EVIDENCE_DIRECTORY: ${{ runner.temp }}/release-evidence/${{ matrix.name }}
+          AUTHMODULES_PACKAGE_DIRECTORY: ${{ matrix.path }}
+      - name: Resolve registry publication state
+        id: publication
+        run: node scripts/resolve-package-publication.js
+        env:
+          AUTHMODULES_EXPECTED_INTEGRITY: ${{ steps.evidence.outputs.package_integrity }}
+          AUTHMODULES_PACKAGE_DIRECTORY: ${{ matrix.path }}
+          AUTHMODULES_PACKAGE_TARBALL: ${{ steps.evidence.outputs.package_tarball }}
+          AUTHMODULES_PUBLICATION_MODE: resolve
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish exact tarball to GitHub Packages
+        if: steps.publication.outputs.publish == 'true'
+        run: npm publish "${PACKAGE_TARBALL}" --ignore-scripts
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PACKAGE_TARBALL: ${{ steps.evidence.outputs.package_tarball }}
+      - name: Verify registry package integrity
+        run: node scripts/resolve-package-publication.js
+        env:
+          AUTHMODULES_EXPECTED_INTEGRITY: ${{ steps.evidence.outputs.package_integrity }}
+          AUTHMODULES_PACKAGE_DIRECTORY: ${{ matrix.path }}
+          AUTHMODULES_PACKAGE_TARBALL: ${{ steps.evidence.outputs.package_tarball }}
+          AUTHMODULES_PUBLICATION_MODE: verify
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Attest build provenance
+        uses: actions/attest@v4
+        with:
+          subject-path: ${{ steps.evidence.outputs.package_tarball }}
+      - name: Attest SBOM
+        uses: actions/attest@v4
+        with:
+          subject-path: ${{ steps.evidence.outputs.package_tarball }}
+          sbom-path: ${{ steps.evidence.outputs.sbom_path }}
+      - name: Upload release evidence
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-${{ matrix.name }}-${{ matrix.version }}-${{ github.sha }}
+          path: |
+            ${{ steps.evidence.outputs.package_tarball }}
+            ${{ steps.evidence.outputs.sbom_path }}
+            ${{ steps.evidence.outputs.evidence_path }}
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  verify:
+    if: needs.plan.outputs.release == 'true'
+    needs:
+      - plan
+      - publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Checkout release commit
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          registry-url: https://npm.pkg.github.com
+          scope: '@authmodules'
+      - name: Install exact npm
+        run: npm install --global npm@11.16.0
+      - name: Install workspace dependencies
+        run: npm ci --ignore-scripts
+      - name: Download release evidence
+        uses: actions/download-artifact@v8
+        with:
+          pattern: release-*-${{ github.sha }}
+          path: ${{ runner.temp }}/release-evidence
+          merge-multiple: true
+      - name: Verify published packages and clean consumer
+        run: node scripts/verify-release-publication.js
+        env:
+          AUTHMODULES_BASE_SHA: ${{ github.event.before }}
+          AUTHMODULES_EVIDENCE_DIRECTORY: ${{ runner.temp }}/release-evidence
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  github-release:
+    if: needs.plan.outputs.release == 'true'
+    needs:
+      - plan
+      - verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Checkout release commit
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install exact npm
+        run: npm install --global npm@11.16.0
+      - name: Install release tooling
+        run: npm ci --ignore-scripts
+      - name: Create component tags and GitHub Releases
+        run: >-
+          npm exec -- release-please github-release
+          --repo-url="${GITHUB_REPOSITORY}"
+          --target-branch=main
+          --token="${RELEASE_PLEASE_TOKEN}"
+          --config-file=release-please-config.json
+          --manifest-file=.release-please-manifest.json
+        env:
+          RELEASE_PLEASE_TOKEN: ${{ secrets.GITHUB_TOKEN }}

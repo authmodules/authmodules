@@ -1,0 +1,136 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-07-30",
+  "strategy": "snapshot-only",
+  "reviewAudit": {
+    "openPullRequests": 17,
+    "threads": 225,
+    "resolvedThreads": 225,
+    "unresolvedThreads": 0,
+    "outdatedThreads": 97,
+    "reviewSubmissions": 276,
+    "changesRequested": 0,
+    "pendingReviews": 0
+  },
+  "sources": [
+    {
+      "repository": "authmodules/.github",
+      "pullRequest": 4,
+      "head": "d7380525c9a16ac8eaff6b4af870b4fd4b5ca845",
+      "tree": "9ab3eb3feb57d39c2f755753190e424ae435fcee",
+      "destination": null
+    },
+    {
+      "repository": "authmodules/authmodules",
+      "pullRequest": 5,
+      "head": "37479c5714b98475a4de372bd97371ba01004f1e",
+      "tree": "da4ca2274e6295c1d3a349bb80b1b673cc58862a",
+      "destination": "."
+    },
+    {
+      "repository": "authmodules/contracts",
+      "pullRequest": 1,
+      "head": "3604b2c178af8d3ef6c3e94fbaa3a714bb85408e",
+      "tree": "cc3200d7fb07a21507bdbb32c94a7ef88436aeb1",
+      "destination": "packages/contracts"
+    },
+    {
+      "repository": "authmodules/core",
+      "pullRequest": 1,
+      "head": "4781e18debff8c4a555d2b719562cce6b77e9b8b",
+      "tree": "4b7afa55466f70a0bb6b2ad3e1a5fd58b1294797",
+      "destination": "packages/core"
+    },
+    {
+      "repository": "authmodules/testkit",
+      "pullRequest": 2,
+      "head": "c9ac5f2ed12cf690db75cc6278e54b465bacea26",
+      "tree": "e3468c7e645d7f6bd891e28dfcb4d72c3c0fefca",
+      "destination": "packages/testkit"
+    },
+    {
+      "repository": "authmodules/method-password",
+      "pullRequest": 1,
+      "head": "7f21367e509a3579e25d6dce8862b133c40ea1e4",
+      "tree": "8c0697776ae830b486ea916c7ed433397a730d7b",
+      "destination": "packages/method-password"
+    },
+    {
+      "repository": "authmodules/method-otp",
+      "pullRequest": 1,
+      "head": "5aa39fe6c2fe0afec5ad2de12463a8973c6d0284",
+      "tree": "3ac2d591554c05c8652614552ed4681c49b5cef1",
+      "destination": "packages/method-otp"
+    },
+    {
+      "repository": "authmodules/store-postgres",
+      "pullRequest": 2,
+      "head": "607b8624400654ad4d5154b1e52a99f1e9ba867a",
+      "tree": "f9b2dc6fd382facbd3f3afb113f26565d7ce8094",
+      "destination": "packages/store-postgres"
+    },
+    {
+      "repository": "authmodules/crypto-node",
+      "pullRequest": 1,
+      "head": "8cdd94c511178d2c2303dfff78309796975a3315",
+      "tree": "b87d0ec1dfc11b2a410eaf7b9a3f4f66181e3255",
+      "destination": "packages/crypto-node"
+    },
+    {
+      "repository": "authmodules/token-opaque",
+      "pullRequest": 2,
+      "head": "78396132bb4a7e46c2a7584d7384c49e127d03a9",
+      "tree": "1bd6a2d05e2bc783886334c8b36ab99b98689de2",
+      "destination": "packages/token-opaque"
+    },
+    {
+      "repository": "authmodules/carrier-cookie",
+      "pullRequest": 1,
+      "head": "ad15c4fca1fd141ee034d17440ef4165376198c7",
+      "tree": "8b9feeaee09015fa43ec7559ce5675778b6732b5",
+      "destination": "packages/carrier-cookie"
+    },
+    {
+      "repository": "authmodules/delivery-email-smtp",
+      "pullRequest": 1,
+      "head": "bfad628d3d9a0fdcd0949867cfe09f65c45a3fb2",
+      "tree": "88a697e801a9fba4ce5229377f59fd8c334024c9",
+      "destination": "packages/delivery-email-smtp"
+    },
+    {
+      "repository": "authmodules/effects-sync-delivery",
+      "pullRequest": 1,
+      "head": "51c2bb1b3210fb231528cad4503a8bb3e282a1a1",
+      "tree": "1b6878f0edaafd5de1a3d7199128152151b4970d",
+      "destination": "packages/effects-sync-delivery"
+    },
+    {
+      "repository": "authmodules/framework-express",
+      "pullRequest": 1,
+      "head": "f523d81b1186446057d3e11ac728eae22c35e1cd",
+      "tree": "395015ba46dd90b3b3cb0890954dbeb4bb6df853",
+      "destination": "packages/framework-express"
+    },
+    {
+      "repository": "authmodules/effects-outbox",
+      "pullRequest": 1,
+      "head": "419cc9d64b066ee3d6eb269f4e2854de983971e6",
+      "tree": "4814b953281030f451f1bbe1b517a01b5ab5a958",
+      "destination": "packages/effects-outbox"
+    },
+    {
+      "repository": "authmodules/outbox-worker",
+      "pullRequest": 2,
+      "head": "c9115e6314a50b8c14f5ec296be1afed4ab26a86",
+      "tree": "035fb1c6d52d820306522a2932b778184ffbfc22",
+      "destination": "packages/outbox-worker"
+    },
+    {
+      "repository": "authmodules/guard-memory",
+      "pullRequest": 2,
+      "head": "fef751d9dfc6cdfdb574f07934f0680f45c6dd7d",
+      "tree": "8d1b776fdf83f00cf5566549f40ed911d4283e33",
+      "destination": "packages/guard-memory"
+    }
+  ]
+}

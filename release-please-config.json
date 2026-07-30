@@ -1,0 +1,35 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "release-type": "node",
+  "initial-version": "0.1.0",
+  "bootstrap-sha": "033300cef823e97321435ce033b0cb48772ad2e4",
+  "separate-pull-requests": false,
+  "always-link-local": false,
+  "include-component-in-tag": true,
+  "include-v-in-tag": true,
+  "bump-minor-pre-major": true,
+  "bump-patch-for-minor-pre-major": false,
+  "plugins": [
+    {
+      "type": "node-workspace",
+      "updatePeerDependencies": true
+    }
+  ],
+  "packages": {
+    "packages/contracts": {},
+    "packages/core": {},
+    "packages/testkit": {},
+    "packages/method-password": {},
+    "packages/method-otp": {},
+    "packages/store-postgres": {},
+    "packages/crypto-node": {},
+    "packages/token-opaque": {},
+    "packages/carrier-cookie": {},
+    "packages/delivery-email-smtp": {},
+    "packages/effects-sync-delivery": {},
+    "packages/framework-express": {},
+    "packages/effects-outbox": {},
+    "packages/outbox-worker": {},
+    "packages/guard-memory": {}
+  }
+}

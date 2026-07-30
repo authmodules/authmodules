@@ -12,15 +12,15 @@ const thresholds = {
 
 const repositories = packageRepositories.filter((repository) => repository !== 'contracts')
 
-const workspaceRoot = fileURLToPath(new URL('../..', import.meta.url))
 const projectRoot = fileURLToPath(new URL('..', import.meta.url))
+const packagesRoot = path.join(projectRoot, 'packages')
 
 if (!process.env.AUTHMODULES_POSTGRES_URL) {
   throw new Error('AUTHMODULES_POSTGRES_URL is required for the coverage gate')
 }
 
 for (const repository of repositories) {
-  const repositoryRoot = path.join(workspaceRoot, repository)
+  const repositoryRoot = path.join(packagesRoot, repository)
   const tests = await packageTests(repositoryRoot)
   tests.push(...ecosystemTests(repository))
   const output = await runCoverage(repositoryRoot, tests)
@@ -51,7 +51,7 @@ function ecosystemTests(repository) {
       path.join(centralTests, 'auth-stack.test.ts'),
       path.join(centralTests, 'compliance-stack.test.ts'),
       path.join(centralTests, 'outbox-stack.test.ts'),
-      path.join(workspaceRoot, 'store-postgres', 'tests', 'store-postgres.test.ts')
+      path.join(packagesRoot, 'store-postgres', 'tests', 'store-postgres.test.ts')
     ]
   }
   return []

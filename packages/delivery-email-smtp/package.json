@@ -1,0 +1,72 @@
+{
+  "name": "@authmodules/delivery-email-smtp",
+  "version": "0.1.0",
+  "description": "Template-first SMTP email delivery through an injected client for AuthModules.",
+  "type": "module",
+  "license": "MIT",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=24"
+  },
+  "packageManager": "npm@11.16.0",
+  "devEngines": {
+    "packageManager": {
+      "name": "npm",
+      "version": "11.16.0",
+      "onFail": "error"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -b --clean && tsc -p tsconfig.json",
+    "test": "node --test tests/*.test.ts",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "pack:dry-run": "npm pack --dry-run --ignore-scripts",
+    "smoke:dist": "node --input-type=module --eval \"await import('./dist/index.js')\"",
+    "check": "npm run lint && npm test && npm run build && npm run api:check && npm run package:check && npm run smoke:dist && npm run pack:dry-run",
+    "prepack": "npm run build",
+    "api:update": "npm run build && node ../../scripts/check-package-api.js --write",
+    "api:check": "node ../../scripts/check-package-api.js",
+    "package:check": "publint && attw --pack --profile esm-only ."
+  },
+  "peerDependencies": {
+    "@authmodules/contracts": "^0.1.0"
+  },
+  "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.5",
+    "publint": "^0.3.22",
+    "typescript": "^7.0.2"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "keywords": [
+    "authmodules",
+    "authentication",
+    "email",
+    "smtp",
+    "typescript"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/authmodules/authmodules.git",
+    "directory": "packages/delivery-email-smtp"
+  },
+  "bugs": {
+    "url": "https://github.com/authmodules/authmodules/issues"
+  },
+  "homepage": "https://github.com/authmodules/authmodules/tree/main/packages/delivery-email-smtp#readme",
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts"
+}

@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "package": "@authmodules/framework-express",
+  "entrypoints": {
+    "type": "module",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js"
+      },
+      "./package.json": "./package.json"
+    }
+  },
+  "compatibility": {
+    "engines": {
+      "node": ">=24"
+    },
+    "peerDependencies": {
+      "@authmodules/contracts": "^0.1.0"
+    },
+    "peerDependenciesMeta": null,
+    "typesVersions": null,
+    "sideEffects": false
+  },
+  "declarations": [
+    {
+      "path": "dist/adapter/create-express-auth-adapter.d.ts",
+      "sha256": "ac1aca965f9313c179459ce0f5cffc4f9a63b98288d01886cc7e90bdab31798e"
+    },
+    {
+      "path": "dist/adapter/types.d.ts",
+      "sha256": "fd37f4275b591fcf8552a425d1caa126601e587d1a4810a6bc115a950f178010"
+    },
+    {
+      "path": "dist/http/request.d.ts",
+      "sha256": "33d63912271741cd002c7c981c289a2f8cd9d7a8f4269aa11fcd2380c0b436aa"
+    },
+    {
+      "path": "dist/http/response.d.ts",
+      "sha256": "d0ce0c32bbea6898d756bfb5ab0749df45ee39571238160fca919ffb280424d0"
+    },
+    {
+      "path": "dist/index.d.ts",
+      "sha256": "d44ba19b093c4bbd7e8766d86ef2d33129a8c528c6b74ef5a181387a623e0dec"
+    },
+    {
+      "path": "dist/security/reveal-secret-http-value.d.ts",
+      "sha256": "94edf17dce48a53213a0002b601986052c40ebb9cb0a009a49eb3fd6398a722a"
+    }
+  ]
+}

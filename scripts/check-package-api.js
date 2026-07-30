@@ -2,11 +2,18 @@ import { createHash } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { access, glob, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
-const packageRoot = path.resolve(fileURLToPath(new URL('../', import.meta.url)))
+const packageRoot = path.resolve(process.cwd())
+const repositoryRoot = (
+  await execFileAsync(
+    'git',
+    ['-C', packageRoot, 'rev-parse', '--show-toplevel'],
+    { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 }
+  )
+).stdout.trim()
+const packagePathFromRepository = normalizePath(path.relative(repositoryRoot, packageRoot))
 const snapshotPath = path.join(packageRoot, 'api-surface.json')
 const manifestPath = path.join(packageRoot, 'package.json')
 const write = process.argv.includes('--write')
@@ -841,22 +848,35 @@ function parseVersion(value) {
 }
 
 async function readOptionalFileAtRef(ref, filePath) {
-  const { stdout } = await execGit(['ls-tree', '--name-only', ref, '--', filePath])
+  const repositoryFilePath = packageFileAtRepositoryRoot(filePath)
+  const { stdout } = await execGit([
+    'ls-tree',
+    '--name-only',
+    ref,
+    '--',
+    `:(top)${repositoryFilePath}`
+  ])
   if (stdout.trim() === '') return undefined
   return readRequiredFileAtRef(ref, filePath)
 }
 
 async function readRequiredFileAtRef(ref, filePath) {
-  const { stdout } = await execGit(['show', `${ref}:${filePath}`])
+  const { stdout } = await execGit(['show', `${ref}:${packageFileAtRepositoryRoot(filePath)}`])
   return stdout
 }
 
 async function execGit(args) {
   return execFileAsync(
     'git',
-    ['-C', packageRoot, ...args],
+    ['-C', repositoryRoot, ...args],
     { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 }
   )
+}
+
+function packageFileAtRepositoryRoot(filePath) {
+  return packagePathFromRepository.length === 0
+    ? normalizePath(filePath)
+    : path.posix.join(packagePathFromRepository, normalizePath(filePath))
 }
 
 function normalizePath(value) {

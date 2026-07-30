@@ -2,7 +2,7 @@ import { readFile, readdir } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const root = path.resolve(fileURLToPath(new URL('../..', import.meta.url)))
+const root = path.resolve(fileURLToPath(new URL('../', import.meta.url)))
 
 const rules = {
   contracts: {
@@ -71,7 +71,7 @@ const importPattern = /(?:from\s+|import\s*(?:\(\s*)?|require\(\s*)['"](@authmod
 let failed = false
 
 for (const [repository, rule] of Object.entries(rules)) {
-  const repositoryPath = path.join(root, repository)
+  const repositoryPath = path.join(root, 'packages', repository)
   const manifestPath = path.join(repositoryPath, 'package.json')
   const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
   const dependencySections = ['dependencies', 'optionalDependencies', 'peerDependencies']
