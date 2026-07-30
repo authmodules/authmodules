@@ -1,1 +1,1 @@
-{}
+{"packages/carrier-cookie":"0.1.0","packages/contracts":"0.1.0","packages/core":"0.1.0","packages/crypto-node":"0.1.0","packages/delivery-email-smtp":"0.1.0","packages/effects-outbox":"0.1.0","packages/effects-sync-delivery":"0.1.0","packages/framework-express":"0.1.0","packages/guard-memory":"0.1.0","packages/method-otp":"0.1.0","packages/method-password":"0.1.0","packages/outbox-worker":"0.1.0","packages/store-postgres":"0.1.0","packages/testkit":"0.1.0","packages/token-opaque":"0.1.0"}
