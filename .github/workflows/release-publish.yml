@@ -227,78 +227,15 @@ jobs:
       - name: Checkout release commit
         uses: actions/checkout@v7
         with:
-          fetch-depth: 0
           persist-credentials: false
           ref: ${{ github.sha }}
       - name: Setup Node
         uses: actions/setup-node@v7
         with:
           node-version: 24
-      - name: Preflight component Releases
-        run: |
-          while IFS= read -r package; do
-            name="$(jq -r '.name' <<<"$package")"
-            package_path="$(jq -r '.path' <<<"$package")"
-            version="$(jq -r '.version' <<<"$package")"
-            tag="${name}-v${version}"
-            tag_target="$(git rev-list -n 1 "$tag" 2>/dev/null || true)"
-            title="${name}: v${version}"
-            notes_file="$RUNNER_TEMP/${name}-${version}.md"
-            release_file="$RUNNER_TEMP/${name}-${version}.release.json"
-            release_error_file="$RUNNER_TEMP/${name}-${version}.release.error"
-
-            node scripts/release-notes.js "$package_path/CHANGELOG.md" "$version" > "$notes_file"
-            if [[ -n "$tag_target" && "$tag_target" != "$RELEASE_SHA" ]]; then
-              echo "$tag points to $tag_target instead of $RELEASE_SHA" >&2
-              exit 1
-            fi
-            if gh api \
-              "repos/${GITHUB_REPOSITORY}/releases/tags/${tag}" \
-              > "$release_file" 2> "$release_error_file"; then
-              if ! jq -e \
-                --arg tag "$tag" \
-                --arg title "$title" \
-                '
-                  .tag_name == $tag
-                  and .name == $title
-                  and .draft == false
-                  and .prerelease == false
-                ' "$release_file" >/dev/null; then
-                echo "$tag has unexpected GitHub Release metadata" >&2
-                exit 1
-              fi
-              if [[ "$tag_target" != "$RELEASE_SHA" ]]; then
-                echo "$tag has a GitHub Release without the expected tag target" >&2
-                exit 1
-              fi
-            elif grep -q '(HTTP 404)' "$release_error_file"; then
-              : > "$release_file"
-            else
-              cat "$release_error_file" >&2
-              exit 1
-            fi
-          done < <(jq -c '.include[]' <<<"$RELEASE_MATRIX")
-      - name: Create component tags and GitHub Releases
-        run: |
-          while IFS= read -r package; do
-            name="$(jq -r '.name' <<<"$package")"
-            version="$(jq -r '.version' <<<"$package")"
-            tag="${name}-v${version}"
-            notes_file="$RUNNER_TEMP/${name}-${version}.md"
-            release_file="$RUNNER_TEMP/${name}-${version}.release.json"
-
-            if [[ -s "$release_file" ]]; then
-              echo "$tag already exists with the expected metadata"
-              continue
-            fi
-            gh release create "$tag" \
-              --repo "$GITHUB_REPOSITORY" \
-              --target "$RELEASE_SHA" \
-              --title "${name}: v${version}" \
-              --latest=false \
-              --notes-file "$notes_file"
-          done < <(jq -c '.include[]' <<<"$RELEASE_MATRIX")
+      - name: Create component GitHub Releases
+        run: node scripts/create-component-releases.js
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_MATRIX: ${{ needs.plan.outputs.matrix }}
-          RELEASE_SHA: ${{ github.sha }}
+          AUTHMODULES_RELEASE_MATRIX: ${{ needs.plan.outputs.matrix }}
+          AUTHMODULES_RELEASE_SHA: ${{ github.sha }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

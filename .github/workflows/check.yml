@@ -42,17 +42,17 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     steps:
+      - name: Verify dispatched head
+        if: inputs.head_sha != ''
+        run: test "$GITHUB_SHA" = "$AUTHMODULES_EXPECTED_HEAD_SHA"
+        env:
+          AUTHMODULES_EXPECTED_HEAD_SHA: ${{ inputs.head_sha }}
       - name: Checkout monorepo
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: false
           ref: ${{ inputs.head_sha || github.sha }}
-      - name: Verify dispatched head
-        if: inputs.head_sha != ''
-        run: test "$(git rev-parse HEAD)" = "$AUTHMODULES_EXPECTED_HEAD_SHA"
-        env:
-          AUTHMODULES_EXPECTED_HEAD_SHA: ${{ inputs.head_sha }}
       - name: Setup Node
         uses: actions/setup-node@v7
         with:

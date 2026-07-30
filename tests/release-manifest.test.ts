@@ -37,6 +37,7 @@ test('release automation has one direct path without lifecycle state', async () 
   const releasePullRequestWorkflow = await readText('.github/workflows/release-pr.yml')
   const publishWorkflow = await readText('.github/workflows/release-publish.yml')
   const consumerScript = await readText('scripts/check-packed-consumer.js')
+  const componentReleaseScript = await readText('scripts/create-component-releases.js')
   const createPullRequestScript = await readText('scripts/create-release-pr.js')
   const combined = [
     releasePullRequestWorkflow,
@@ -47,12 +48,25 @@ test('release automation has one direct path without lifecycle state', async () 
   assert.match(releasePullRequestWorkflow, /on:\n  workflow_dispatch:\n/)
   assert.match(releasePullRequestWorkflow, /node scripts\/create-release-pr\.js/)
   assert.match(releasePullRequestWorkflow, /gh workflow run check\.yml/)
-  assert.match(releasePullRequestWorkflow, /headRepositoryOwner\.login/)
-  assert.match(releasePullRequestWorkflow, /headRepository\.name/)
-  assert.match(releasePullRequestWorkflow, /== \$repository/)
+  assert.match(releasePullRequestWorkflow, /Reject conflicting release pull requests/)
+  assert.match(releasePullRequestWorkflow, /--paginate/)
+  assert.match(releasePullRequestWorkflow, /\.head\.repo\.full_name != \$repository/)
+  assert.match(
+    releasePullRequestWorkflow,
+    /head=\$\{GITHUB_REPOSITORY_OWNER\}:release-please--branches--main/
+  )
+  assert.match(releasePullRequestWorkflow, /ref: \$\{\{ steps\.release_pr\.outputs\.head_sha \}\}/)
   assert.doesNotMatch(releasePullRequestWorkflow, /issues: write/)
   assert.match(createPullRequestScript, /skipLabeling: true/)
   assert.match(checkWorkflow, /ref: \$\{\{ inputs\.head_sha \|\| github\.sha \}\}/)
+  assert.match(
+    checkWorkflow,
+    /test "\$GITHUB_SHA" = "\$AUTHMODULES_EXPECTED_HEAD_SHA"/
+  )
+  assert.ok(
+    checkWorkflow.indexOf('Verify dispatched head')
+      < checkWorkflow.indexOf('Checkout monorepo')
+  )
   assert.match(publishWorkflow, /paths:\n      - \.release-please-manifest\.json/)
   assert.doesNotMatch(publishWorkflow, /\n  workflow_dispatch:/)
   assert.match(publishWorkflow, /Verify Release Please merge/)
@@ -71,18 +85,13 @@ test('release automation has one direct path without lifecycle state', async () 
   assert.match(consumerScript, /metadata\.visibility !== 'public'/)
   assert.match(consumerScript, /metadata\.repository\?\.full_name !== expectedRepository/)
   assert.match(consumerScript, /attempts: 6, delayMilliseconds: 5_000/)
-  assert.match(publishWorkflow, /Preflight component Releases/)
-  assert.match(
-    publishWorkflow,
-    /Preflight component Releases[\s\S]*node scripts\/release-notes\.js[\s\S]*Create component tags and GitHub Releases[\s\S]*gh release create/
-  )
-  assert.match(
-    publishWorkflow,
-    /\.tag_name == \$tag[\s\S]*\.draft == false[\s\S]*\.prerelease == false/
-  )
-  assert.match(publishWorkflow, /\(HTTP 404\)/)
-  assert.match(publishWorkflow, /gh release create "\$tag"/)
-  assert.match(publishWorkflow, /--latest=false/)
+  assert.match(publishWorkflow, /node scripts\/create-component-releases\.js/)
+  assert.match(publishWorkflow, /AUTHMODULES_RELEASE_MATRIX:/)
+  assert.match(publishWorkflow, /AUTHMODULES_RELEASE_SHA: \$\{\{ github\.sha \}\}/)
+  assert.doesNotMatch(publishWorkflow, /gh release create|Preflight component Releases/)
+  assert.match(componentReleaseScript, /make_latest: 'false'/)
+  assert.match(componentReleaseScript, /const expected = await Promise\.all/)
+  assert.match(componentReleaseScript, /const verified = await Promise\.all/)
   assert.doesNotMatch(combined, /autorelease:|repair|release state/i)
 })
 
