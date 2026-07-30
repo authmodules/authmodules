@@ -75,8 +75,11 @@ await writeFile(
     eventName: required('GITHUB_EVENT_NAME'),
     releaseSha,
     repository: required('GITHUB_REPOSITORY'),
+    repositoryId: required('GITHUB_REPOSITORY_ID'),
+    repositoryOwnerId: required('GITHUB_REPOSITORY_OWNER_ID'),
     runAttempt: required('GITHUB_RUN_ATTEMPT'),
     runId: required('GITHUB_RUN_ID'),
+    runnerEnvironment: required('RUNNER_ENVIRONMENT'),
     serverUrl: required('GITHUB_SERVER_URL'),
     workflowRef: required('GITHUB_WORKFLOW_REF'),
     workflowSha

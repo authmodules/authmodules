@@ -9,47 +9,52 @@ const releaseSha = 'a'.repeat(40)
 const workflowSha = 'b'.repeat(40)
 
 test('package provenance distinguishes pinned release source from workflow definition', async () => {
-  const manifest = JSON.parse(
-    await readFile(path.join(root, 'packages', 'contracts', 'package.json'), 'utf8')
-  )
-  const provenance = createPackageProvenance(manifest, {
+  const provenance = createPackageProvenance(await contractsManifest(), trustedContext({
     eventName: 'workflow_dispatch',
-    releaseSha,
-    repository: 'authmodules/authmodules',
-    runAttempt: '2',
-    runId: '12345',
-    serverUrl: 'https://github.com',
-    workflowRef: (
-      'authmodules/authmodules/.github/workflows/release-publish.yml@refs/heads/main'
-    ),
-    workflowSha
-  })
+    runAttempt: '2'
+  }))
 
   assert.equal(
     provenance.buildDefinition.buildType,
-    (
-      `https://github.com/authmodules/authmodules/blob/${workflowSha}/`
-      + 'docs/08-REPOSITORY-SETTINGS.md#package-release-provenance-v1'
-    )
+    'https://actions.github.io/buildtypes/workflow/v1'
+  )
+  assert.deepEqual(
+    provenance.buildDefinition.externalParameters,
+    {
+      workflow: {
+        path: '.github/workflows/release-publish.yml',
+        ref: 'refs/heads/main',
+        repository: 'https://github.com/authmodules/authmodules'
+      }
+    }
+  )
+  assert.deepEqual(
+    provenance.buildDefinition.internalParameters,
+    {
+      github: {
+        event_name: 'workflow_dispatch',
+        repository_id: '123456',
+        repository_owner_id: '7890',
+        runner_environment: 'github-hosted'
+      }
+    }
   )
   assert.deepEqual(provenance.buildDefinition.resolvedDependencies, [
     {
-      name: 'release source',
-      uri: `git+https://github.com/authmodules/authmodules.git@${releaseSha}`,
-      digest: { gitCommit: releaseSha }
+      uri: 'git+https://github.com/authmodules/authmodules@refs/heads/main',
+      digest: { gitCommit: workflowSha }
     },
     {
-      name: 'release workflow',
-      uri: (
-        'git+https://github.com/authmodules/authmodules.git@refs/heads/main'
-        + '#.github/workflows/release-publish.yml'
-      ),
-      digest: { gitCommit: workflowSha }
+      uri: `git+https://github.com/authmodules/authmodules@${releaseSha}`,
+      digest: { gitCommit: releaseSha }
     }
   ])
   assert.equal(
-    provenance.buildDefinition.externalParameters.releaseSource.commit,
-    releaseSha
+    provenance.runDetails.builder.id,
+    (
+      'https://github.com/authmodules/authmodules/'
+      + '.github/workflows/release-publish.yml@refs/heads/main'
+    )
   )
   assert.equal(
     provenance.runDetails.metadata.invocationId,
@@ -57,21 +62,85 @@ test('package provenance distinguishes pinned release source from workflow defin
   )
 })
 
-test('package provenance rejects an untrusted workflow path', async () => {
-  const manifest = JSON.parse(
-    await readFile(path.join(root, 'packages', 'contracts', 'package.json'), 'utf8')
+test('package provenance uses the standard external parameters for a push build', async () => {
+  const provenance = createPackageProvenance(
+    await contractsManifest(),
+    trustedContext()
   )
-  assert.throws(
-    () => createPackageProvenance(manifest, {
-      eventName: 'workflow_dispatch',
-      releaseSha,
-      repository: 'authmodules/authmodules',
-      runAttempt: '1',
-      runId: '12345',
-      serverUrl: 'https://github.com',
-      workflowRef: 'authmodules/authmodules/.github/workflows/other.yml@refs/heads/main',
-      workflowSha
-    }),
-    /publish workflow ref/
+
+  assert.deepEqual(
+    provenance.buildDefinition.externalParameters,
+    {
+      workflow: {
+        path: '.github/workflows/release-publish.yml',
+        ref: 'refs/heads/main',
+        repository: 'https://github.com/authmodules/authmodules'
+      }
+    }
   )
 })
+
+test('package provenance rejects an untrusted workflow path', async () => {
+  const manifest = await contractsManifest()
+  assert.throws(
+    () => createPackageProvenance(manifest, trustedContext({
+      eventName: 'workflow_dispatch',
+      workflowRef: 'authmodules/authmodules/.github/workflows/other.yml@refs/heads/main'
+    })),
+    /publish workflow on main/
+  )
+})
+
+test('package provenance rejects an untrusted workflow ref', async () => {
+  const manifest = await contractsManifest()
+  assert.throws(
+    () => createPackageProvenance(manifest, trustedContext({
+      eventName: 'workflow_dispatch',
+      workflowRef: (
+        'authmodules/authmodules/.github/workflows/release-publish.yml@refs/heads/fix'
+      )
+    })),
+    /publish workflow on main/
+  )
+})
+
+test('package provenance requires the standard GitHub builder identity fields', async () => {
+  const manifest = await contractsManifest()
+  const context = trustedContext()
+
+  for (const [field, expected] of [
+    ['repositoryId', /repository ID/],
+    ['repositoryOwnerId', /repository owner ID/],
+    ['runnerEnvironment', /runner environment/]
+  ]) {
+    assert.throws(
+      () => createPackageProvenance(manifest, { ...context, [field]: '' }),
+      expected
+    )
+  }
+})
+
+async function contractsManifest() {
+  return JSON.parse(
+    await readFile(path.join(root, 'packages', 'contracts', 'package.json'), 'utf8')
+  )
+}
+
+function trustedContext(overrides = {}) {
+  return {
+    eventName: 'push',
+    releaseSha,
+    repository: 'authmodules/authmodules',
+    repositoryId: '123456',
+    repositoryOwnerId: '7890',
+    runAttempt: '1',
+    runId: '12345',
+    runnerEnvironment: 'github-hosted',
+    serverUrl: 'https://github.com',
+    workflowRef: (
+      'authmodules/authmodules/.github/workflows/release-publish.yml@refs/heads/main'
+    ),
+    workflowSha,
+    ...overrides
+  }
+}
