@@ -1,7 +1,10 @@
 import { isExactVersion } from './release-manifest.js'
 
 const shaPattern = /^[0-9a-f]{40}$/
+const numericIdPattern = /^[1-9][0-9]*$/
 const workflowPath = '.github/workflows/release-publish.yml'
+const workflowRef = 'refs/heads/main'
+const githubActionsBuildType = 'https://actions.github.io/buildtypes/workflow/v1'
 
 export function createPackageProvenance(manifest, context) {
   if (
@@ -29,61 +32,58 @@ export function createPackageProvenance(manifest, context) {
   if (!/^[1-9][0-9]*$/.test(context.runAttempt ?? '')) {
     throw new Error('Package provenance requires a GitHub Actions run attempt')
   }
+  if (!numericIdPattern.test(context.repositoryId ?? '')) {
+    throw new Error('Package provenance requires a GitHub repository ID')
+  }
+  if (!numericIdPattern.test(context.repositoryOwnerId ?? '')) {
+    throw new Error('Package provenance requires a GitHub repository owner ID')
+  }
+  if (!['github-hosted', 'self-hosted'].includes(context.runnerEnvironment)) {
+    throw new Error('Package provenance requires a GitHub runner environment')
+  }
 
   const workflow = parseWorkflowRef(context.workflowRef, context.repository)
   const repositoryUrl = `${requiredHttpsUrl(context.serverUrl)}/${context.repository}`
   const invocationId = `${repositoryUrl}/actions/runs/${context.runId}/attempts/${context.runAttempt}`
-  const releaseSource = `git+${repositoryUrl}.git@${context.releaseSha}`
-  const workflowSource = (
-    `git+${repositoryUrl}.git@${workflow.ref}#${workflow.path}`
-  )
+  const releaseSource = `git+${repositoryUrl}@${context.releaseSha}`
+  const workflowSource = `git+${repositoryUrl}@${workflow.ref}`
 
   return {
     buildDefinition: {
-      buildType: (
-        `${repositoryUrl}/blob/${context.workflowSha}/`
-        + 'docs/08-REPOSITORY-SETTINGS.md#package-release-provenance-v1'
-      ),
+      buildType: githubActionsBuildType,
       externalParameters: {
-        package: {
-          name: manifest.name,
-          version: manifest.version
-        },
-        releaseSource: {
-          repository: repositoryUrl,
-          commit: context.releaseSha
-        },
         workflow: {
-          path: `/${workflow.path}`,
           ref: workflow.ref,
-          repository: repositoryUrl
+          repository: repositoryUrl,
+          path: workflow.path
         }
       },
       internalParameters: {
         github: {
-          eventName: context.eventName
+          event_name: context.eventName,
+          repository_id: context.repositoryId,
+          repository_owner_id: context.repositoryOwnerId,
+          runner_environment: context.runnerEnvironment
         }
       },
       resolvedDependencies: [
         {
-          name: 'release source',
-          uri: releaseSource,
-          digest: {
-            gitCommit: context.releaseSha
-          }
-        },
-        {
-          name: 'release workflow',
           uri: workflowSource,
           digest: {
             gitCommit: context.workflowSha
+          }
+        },
+        {
+          uri: releaseSource,
+          digest: {
+            gitCommit: context.releaseSha
           }
         }
       ]
     },
     runDetails: {
       builder: {
-        id: 'https://github.com/actions/runner/github-hosted'
+        id: `${repositoryUrl}/${workflow.path}@${workflow.ref}`
       },
       metadata: {
         invocationId
@@ -100,8 +100,8 @@ function parseWorkflowRef(value, repository) {
   const separator = value.lastIndexOf('@')
   const path = value.slice(prefix.length, separator)
   const ref = value.slice(separator + 1)
-  if (separator < prefix.length || path !== workflowPath || ref.length === 0) {
-    throw new Error('Package provenance requires the publish workflow ref')
+  if (separator < prefix.length || path !== workflowPath || ref !== workflowRef) {
+    throw new Error('Package provenance requires the publish workflow on main')
   }
   return { path, ref }
 }

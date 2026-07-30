@@ -151,11 +151,11 @@ test('release automation is manual, exact-head, and publication-gated', async ()
   assert.match(releaseStateScript, /target_commitish: releaseSha/)
   assert.match(
     packageProvenanceScript,
-    /name: 'release source'[\s\S]*gitCommit: context\.releaseSha/
+    /https:\/\/actions\.github\.io\/buildtypes\/workflow\/v1/
   )
   assert.match(
     packageProvenanceScript,
-    /name: 'release workflow'[\s\S]*gitCommit: context\.workflowSha/
+    /uri: workflowSource[\s\S]*gitCommit: context\.workflowSha[\s\S]*uri: releaseSource[\s\S]*gitCommit: context\.releaseSha/
   )
   assert.match(
     releasePlanScript,
