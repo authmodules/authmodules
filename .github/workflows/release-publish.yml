@@ -355,7 +355,11 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   github-release:
-    if: needs.plan.outputs.release == 'true'
+    if: >-
+      !cancelled()
+      && needs.plan.result == 'success'
+      && needs.plan.outputs.release == 'true'
+      && needs.verify.result == 'success'
     needs:
       - plan
       - verify

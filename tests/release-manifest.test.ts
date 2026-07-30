@@ -111,6 +111,11 @@ test('release automation is manual, exact-head, and publication-gated', async ()
   assert.match(publishJob, /Upload release evidence[\s\S]*overwrite: true/)
   assert.match(repairJob, /Upload release evidence[\s\S]*overwrite: true/)
   assert.match(verifyJob, /ref: \$\{\{ needs\.plan\.outputs\.head_sha \}\}/)
+  assert.match(
+    githubReleaseJob,
+    /!cancelled\(\)[\s\S]*needs\.plan\.result == 'success'[\s\S]*needs\.verify\.result == 'success'/
+  )
+  assert.doesNotMatch(githubReleaseJob, /always\(\)/)
   assert.match(githubReleaseJob, /ref: \$\{\{ needs\.plan\.outputs\.head_sha \}\}/)
   assert.match(
     githubReleaseJob,
