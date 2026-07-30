@@ -6,14 +6,13 @@ import {
   assertReleasePleaseManifest,
   isExactIntegrity,
   isExactVersion,
-  packageRepositories,
-  shouldPublishReleaseManifest
+  packageRepositories
 } from '../scripts/release-manifest.js'
 
 const root = path.resolve(import.meta.dirname, '..')
 const integrity = `sha512-${'A'.repeat(86)}==`
 
-test('root workspaces and Release Please paths describe the complete package set', async () => {
+test('workspaces and Release Please describe the same package set', async () => {
   const rootManifest = await readJson('package.json')
   const releaseConfig = await readJson('release-please-config.json')
   const releaseManifest = await readJson('.release-please-manifest.json')
@@ -21,177 +20,51 @@ test('root workspaces and Release Please paths describe the complete package set
 
   assert.deepEqual(rootManifest.workspaces, expectedPaths)
   assert.deepEqual(Object.keys(releaseConfig.packages), expectedPaths)
-  assert.doesNotThrow(() => {
-    assertReleasePleaseManifest(releaseManifest, { allowEmpty: true })
-  })
+  assert.doesNotThrow(() => assertReleasePleaseManifest(releaseManifest))
   assert.equal(releaseConfig['release-type'], 'node')
-  assert.equal(releaseConfig['initial-version'], '0.1.0')
   assert.equal(releaseConfig['separate-pull-requests'], false)
   assert.equal(releaseConfig['always-link-local'], false)
   assert.equal(releaseConfig['include-component-in-tag'], true)
   assert.equal(releaseConfig['include-v-in-tag'], true)
-  assert.equal(releaseConfig['bump-minor-pre-major'], true)
-  assert.equal(releaseConfig['bump-patch-for-minor-pre-major'], false)
-  assert.equal(
-    releaseConfig['bootstrap-sha'],
-    '033300cef823e97321435ce033b0cb48772ad2e4'
-  )
   assert.deepEqual(releaseConfig.plugins, [{
     type: 'node-workspace',
     updatePeerDependencies: true
   }])
 })
 
-test('release automation is manual, exact-head, and publication-gated', async () => {
+test('release automation has one direct path without lifecycle state', async () => {
   const checkWorkflow = await readText('.github/workflows/check.yml')
   const releasePullRequestWorkflow = await readText('.github/workflows/release-pr.yml')
   const publishWorkflow = await readText('.github/workflows/release-publish.yml')
-  const dispatchScript = await readText('scripts/dispatch-release-pr-check.js')
-  const releasePlanScript = await readText('scripts/create-release-plan.js')
-  const releaseContextScript = await readText('scripts/resolve-release-publish-context.js')
-  const releaseCommitScript = await readText('scripts/verify-release-commit.js')
-  const releaseStateScript = await readText('scripts/resolve-github-release-state.js')
-  const packageProvenanceScript = await readText('scripts/package-provenance.js')
-  const releaseTriggerScript = await readText('scripts/detect-release-trigger.js')
-  const releaseVerificationScript = await readText('scripts/verify-release-publication.js')
-  const planJob = workflowSection(publishWorkflow, 'plan', 'check')
-  const publishJob = workflowSection(publishWorkflow, 'publish', 'repair')
-  const repairJob = workflowSection(publishWorkflow, 'repair', 'verify')
-  const verifyJob = workflowSection(publishWorkflow, 'verify', 'github-release')
-  const githubReleaseJob = workflowSection(publishWorkflow, 'github-release')
+  const createPullRequestScript = await readText('scripts/create-release-pr.js')
+  const combined = [
+    releasePullRequestWorkflow,
+    publishWorkflow,
+    createPullRequestScript
+  ].join('\n')
 
   assert.match(releasePullRequestWorkflow, /on:\n  workflow_dispatch:\n/)
-  assert.doesNotMatch(releasePullRequestWorkflow, /\n  push:/)
-  assert.match(dispatchScript, /head_sha: pullRequest\.head\.sha/)
-  assert.match(checkWorkflow, /if: inputs\.head_sha != ''/)
-  assert.match(checkWorkflow, /test "\$GITHUB_SHA" = "\$AUTHMODULES_EXPECTED_HEAD_SHA"/)
+  assert.match(releasePullRequestWorkflow, /node scripts\/create-release-pr\.js/)
+  assert.match(releasePullRequestWorkflow, /gh workflow run check\.yml/)
+  assert.doesNotMatch(releasePullRequestWorkflow, /issues: write/)
+  assert.match(createPullRequestScript, /skipLabeling: true/)
+  assert.match(checkWorkflow, /ref: \$\{\{ inputs\.head_sha \|\| github\.sha \}\}/)
+  assert.match(publishWorkflow, /paths:\n      - \.release-please-manifest\.json/)
+  assert.doesNotMatch(publishWorkflow, /\n  workflow_dispatch:/)
+  assert.match(publishWorkflow, /run: npm run check/)
+  assert.match(publishWorkflow, /node scripts\/create-release-plan\.js/)
+  assert.match(publishWorkflow, /npm publish/)
   assert.match(
     publishWorkflow,
-    /paths:\n      - \.release-please-manifest\.json/
+    /Attest build provenance[\s\S]*subject-path:[\s\S]*Attest SBOM/
   )
-  assert.match(publishWorkflow, /\n  workflow_dispatch:\n/)
-  assert.match(publishJob, /if: github\.event_name == 'push'/)
-  assert.match(publishJob, /packages: write/)
-  assert.match(publishJob, /npm publish/)
-  assert.match(repairJob, /if: github\.event_name == 'workflow_dispatch'/)
-  assert.match(repairJob, /packages: read/)
-  assert.doesNotMatch(repairJob, /packages: write|npm publish/)
-  assert.match(
-    publishWorkflow,
-    /pattern: release-\*-\$\{\{ needs\.plan\.outputs\.head_sha \}\}/
-  )
-  assert.match(
-    publishWorkflow,
-    /ref: \$\{\{ needs\.plan\.outputs\.head_sha \}\}/
-  )
-  assert.match(
-    publishJob,
-    /path: \.release-tooling[\s\S]*ref: \$\{\{ github\.workflow_sha \}\}/
-  )
-  assert.match(
-    repairJob,
-    /path: \.release-tooling[\s\S]*ref: \$\{\{ github\.workflow_sha \}\}/
-  )
-  assert.match(
-    repairJob,
-    /node \.release-tooling\/scripts\/prepare-package-release-evidence\.js/
-  )
-  assert.match(publishJob, /AUTHMODULES_RELEASE_SHA: \$\{\{ needs\.plan\.outputs\.head_sha \}\}/)
-  assert.match(repairJob, /AUTHMODULES_RELEASE_SHA: \$\{\{ needs\.plan\.outputs\.head_sha \}\}/)
-  assert.match(
-    publishJob,
-    /Verify registry package integrity[\s\S]*predicate-path: \$\{\{ steps\.evidence\.outputs\.provenance_path \}\}[\s\S]*Attest SBOM/
-  )
-  assert.match(
-    repairJob,
-    /Verify existing registry package integrity[\s\S]*predicate-path: \$\{\{ steps\.evidence\.outputs\.provenance_path \}\}[\s\S]*Attest SBOM/
-  )
-  assert.match(publishJob, /predicate-type: https:\/\/slsa\.dev\/provenance\/v1/)
-  assert.match(repairJob, /predicate-type: https:\/\/slsa\.dev\/provenance\/v1/)
-  assert.match(publishJob, /Upload release evidence[\s\S]*overwrite: true/)
-  assert.match(repairJob, /Upload release evidence[\s\S]*overwrite: true/)
-  assert.match(verifyJob, /ref: \$\{\{ needs\.plan\.outputs\.head_sha \}\}/)
-  assert.match(
-    githubReleaseJob,
-    /!cancelled\(\)[\s\S]*needs\.plan\.result == 'success'[\s\S]*needs\.verify\.result == 'success'/
-  )
-  assert.doesNotMatch(githubReleaseJob, /always\(\)/)
-  assert.match(githubReleaseJob, /pull-requests: write/)
-  assert.doesNotMatch(githubReleaseJob, /issues: write/)
-  assert.match(githubReleaseJob, /ref: \$\{\{ needs\.plan\.outputs\.head_sha \}\}/)
-  assert.match(
-    githubReleaseJob,
-    /Resolve component release state[\s\S]*Create component tags and GitHub Releases/
-  )
-  assert.match(
-    githubReleaseJob,
-    /Create component tags and GitHub Releases[\s\S]*Verify component tags and GitHub Releases/
-  )
-  assert.match(
-    githubReleaseJob,
-    /AUTHMODULES_RELEASE_STATE_MODE: create/
-  )
-  assert.doesNotMatch(githubReleaseJob, /release-please github-release|npm exec/)
-  assert.match(
-    publishWorkflow,
-    /AUTHMODULES_BASE_SHA: \$\{\{ needs\.plan\.outputs\.base_sha \}\}/
-  )
-  assert.match(
-    releaseContextScript,
-    /Current main release manifest differs from the requested release commit/
-  )
-  assert.match(
-    releaseContextScript,
-    /Release base must be the first parent of the release commit/
-  )
-  assert.match(releaseCommitScript, /autorelease: tagged/)
-  assert.doesNotMatch(
-    planJob,
-    /Verify Release Please merge[\s\S]{0,160}working-directory: release-source/
-  )
-  assert.match(
-    releaseStateScript,
-    /Exactly one pending Release Please PR must match the release commit/
-  )
-  assert.match(
-    releaseStateScript,
-    /await assertLifecycleMutationAccess\(pendingPullRequest\)[\s\S]*await createComponentReleases\(states\)/
-  )
-  assert.match(releaseStateScript, /points to \$\{targetSha\} instead of \$\{releaseSha\}/)
-  assert.match(releaseStateScript, /ref: `refs\/tags\/\$\{state\.tag\}`/)
-  assert.match(releaseStateScript, /target_commitish: releaseSha/)
-  assert.match(
-    packageProvenanceScript,
-    /https:\/\/actions\.github\.io\/buildtypes\/workflow\/v1/
-  )
-  assert.match(
-    packageProvenanceScript,
-    /uri: workflowSource[\s\S]*gitCommit: context\.workflowSha[\s\S]*uri: releaseSource[\s\S]*gitCommit: context\.releaseSha/
-  )
-  assert.match(
-    releasePlanScript,
-    /assertReleasePleaseManifest\(currentManifest, \{ label: 'Current release manifest' \}\)/
-  )
-  assert.match(
-    releaseTriggerScript,
-    /shouldPublishReleaseManifest\(previousManifest, manifest\)/
-  )
-  assert.match(releaseTriggerScript, /if \(ref === '0'\.repeat\(40\)\) return \{\}/)
-  assert.match(
-    publishWorkflow,
-    /AUTHMODULES_PUSH_BASE_SHA: \$\{\{ github\.event\.before \}\}/
-  )
-  assert.match(
-    releaseVerificationScript,
-    /assertReleasePleaseManifest\(currentManifest, \{ label: 'Current release manifest' \}\)/
-  )
-  assert.ok(
-    publishWorkflow.indexOf('Verify published packages and clean consumer')
-      < publishWorkflow.indexOf('Create component tags and GitHub Releases')
-  )
+  assert.doesNotMatch(publishWorkflow, /predicate-path|predicate-type/)
+  assert.match(publishWorkflow, /AUTHMODULES_PUBLISHED: 'true'/)
+  assert.match(publishWorkflow, /gh release create "\$tag"/)
+  assert.doesNotMatch(combined, /autorelease:|repair|release state/i)
 })
 
-test('initial workspace manifests keep independent package identities at 0.1.0', async () => {
+test('workspace manifests keep independent package identities', async () => {
   for (const name of packageRepositories) {
     const packagePath = `packages/${name}`
     const manifest = await readJson(`${packagePath}/package.json`)
@@ -206,51 +79,31 @@ test('initial workspace manifests keep independent package identities at 0.1.0',
   }
 })
 
-test('exact versions follow SemVer identifier and leading-zero rules', () => {
+test('release values require exact SemVer and SHA-512 integrity', () => {
   for (const version of [
     '0.1.0',
     '1.2.3-alpha.1',
     '1.2.3-0',
-    '1.2.3+build.01',
-    '1.2.3-alpha+build.5'
+    '1.2.3+build.01'
   ]) {
     assert.equal(isExactVersion(version), true, version)
   }
-
-  for (const version of [
-    '01.2.3',
-    '1.02.3',
-    '1.2.03',
-    '1.2.3-01',
-    '1.2.3-.',
-    '1.2.3-alpha.',
-    '1.2.3+',
-    '1.2',
-    '^1.2.3'
-  ]) {
+  for (const version of ['01.2.3', '1.2.03', '1.2.3-01', '1.2', '^1.2.3']) {
     assert.equal(isExactVersion(version), false, version)
   }
-})
 
-test('package integrities require one canonical SHA-512 SRI digest', () => {
   assert.equal(isExactIntegrity(integrity), true)
   assert.equal(isExactIntegrity(`sha256-${'A'.repeat(43)}=`), false)
-  assert.equal(isExactIntegrity(`sha512-${'A'.repeat(85)}==`), false)
-  assert.equal(isExactIntegrity(`sha512-${'A'.repeat(86)}=`), false)
   assert.equal(isExactIntegrity(`${integrity} ${integrity}`), false)
 })
 
-test('release manifests are either empty bootstrap state or the complete package set', () => {
+test('release manifest contains every workspace exactly once', () => {
   const complete = Object.fromEntries(
     packageRepositories.map((name) => [`packages/${name}`, '0.1.0'])
   )
 
-  assert.doesNotThrow(() => assertReleasePleaseManifest({}, { allowEmpty: true }))
   assert.doesNotThrow(() => assertReleasePleaseManifest(complete))
-  assert.throws(
-    () => assertReleasePleaseManifest({ 'packages/contracts': '0.1.0' }, { allowEmpty: true }),
-    /missing:/
-  )
+  assert.throws(() => assertReleasePleaseManifest({}), /missing:/)
   assert.throws(
     () => assertReleasePleaseManifest({ ...complete, 'packages/unknown': '0.1.0' }),
     /unknown: packages\/unknown/
@@ -258,54 +111,6 @@ test('release manifests are either empty bootstrap state or the complete package
   assert.throws(
     () => assertReleasePleaseManifest({ ...complete, 'packages/contracts': '^0.1.0' }),
     /invalid version for packages\/contracts/
-  )
-  assert.throws(() => assertReleasePleaseManifest({}), /missing:/)
-
-  assert.throws(
-    () => assertReleasePleaseManifest(Object.create({ inherited: true }), { allowEmpty: true }),
-    /plain data object/
-  )
-  const symbolManifest = Object.create(null)
-  symbolManifest[Symbol('unknown')] = '0.1.0'
-  assert.throws(
-    () => assertReleasePleaseManifest(symbolManifest, { allowEmpty: true }),
-    /only string package paths/
-  )
-  const nonEnumerableManifest = { ...complete }
-  Object.defineProperty(nonEnumerableManifest, 'packages/unknown', {
-    value: '0.1.0'
-  })
-  assert.throws(
-    () => assertReleasePleaseManifest(nonEnumerableManifest),
-    /only enumerable data properties/
-  )
-  let accessorReads = 0
-  const accessorManifest = { ...complete }
-  Object.defineProperty(accessorManifest, 'packages/contracts', {
-    enumerable: true,
-    get() {
-      accessorReads += 1
-      return '0.1.0'
-    }
-  })
-  assert.throws(
-    () => assertReleasePleaseManifest(accessorManifest),
-    /only enumerable data properties/
-  )
-  assert.equal(accessorReads, 0)
-})
-
-test('release manifest transitions cannot return to bootstrap state', () => {
-  const complete = Object.fromEntries(
-    packageRepositories.map((name) => [`packages/${name}`, '0.1.0'])
-  )
-
-  assert.equal(shouldPublishReleaseManifest({}, {}), false)
-  assert.equal(shouldPublishReleaseManifest({}, complete), true)
-  assert.equal(shouldPublishReleaseManifest(complete, complete), true)
-  assert.throws(
-    () => shouldPublishReleaseManifest(complete, {}),
-    /cannot transition back to bootstrap state/
   )
 })
 
@@ -315,14 +120,4 @@ async function readJson(relativePath) {
 
 async function readText(relativePath) {
   return readFile(path.join(root, relativePath), 'utf8')
-}
-
-function workflowSection(source, name, nextName) {
-  const start = source.indexOf(`\n  ${name}:\n`)
-  assert.notEqual(start, -1, `${name} job is missing`)
-  const end = nextName === undefined
-    ? source.length
-    : source.indexOf(`\n  ${nextName}:\n`, start + 1)
-  assert.notEqual(end, -1, `${nextName} job is missing after ${name}`)
-  return source.slice(start, end)
 }

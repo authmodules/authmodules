@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises'
+import { fileURLToPath } from 'node:url'
 import { isExactVersion } from './release-manifest.js'
 
 export function extractReleaseNotes(source, version, changelogPath = 'CHANGELOG.md') {
@@ -20,4 +22,11 @@ export function extractReleaseNotes(source, version, changelogPath = 'CHANGELOG.
     throw new Error(`${changelogPath} has empty release notes for ${version}`)
   }
   return notes
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  const changelogPath = process.argv[2]
+  const version = process.argv[3]
+  const source = await readFile(changelogPath, 'utf8')
+  process.stdout.write(`${extractReleaseNotes(source, version, changelogPath)}\n`)
 }

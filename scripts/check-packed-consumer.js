@@ -3,7 +3,11 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { spawn } from 'node:child_process'
-import { isExactIntegrity, isExactVersion, packageRepositories } from './release-manifest.js'
+import {
+  assertReleasePleaseManifest,
+  isExactVersion,
+  packageRepositories
+} from './release-manifest.js'
 
 const repositories = packageRepositories
 const runtimeRepositories = repositories.filter((repository) => repository !== 'contracts')
@@ -12,11 +16,9 @@ const projectRoot = fileURLToPath(new URL('..', import.meta.url))
 const packagesRoot = path.join(projectRoot, 'packages')
 const buildToolPath = path.join(projectRoot, 'node_modules', '.bin')
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm'
-const publishedVersions = parsePublishedVersions(process.env.AUTHMODULES_PUBLISHED_VERSIONS)
-const publishedIntegrities = parsePublishedIntegrities(process.env.AUTHMODULES_PUBLISHED_INTEGRITIES)
-if ((publishedVersions === undefined) !== (publishedIntegrities === undefined)) {
-  throw new Error('Published versions and integrities must be provided together')
-}
+const publishedVersions = process.env.AUTHMODULES_PUBLISHED === 'true'
+  ? await readPublishedVersions()
+  : undefined
 const temporaryRoot = await mkdtemp(path.join(tmpdir(), 'authmodules-packed-consumer-'))
 const tarballRoot = path.join(temporaryRoot, 'tarballs')
 const consumerRoot = path.join(temporaryRoot, 'consumer')
@@ -74,9 +76,6 @@ try {
   }
 
   await assertPublishedPackages(consumerRoot, publishedVersions)
-  if (publishedVersions && publishedIntegrities) {
-    await assertPublishedIntegrities(publishedVersions, publishedIntegrities)
-  }
 
   await writeFile(path.join(consumerRoot, 'consumer.js'), runtimeConsumerSource())
   await writeFile(path.join(consumerRoot, 'consumer.ts'), typeConsumerSource())
@@ -182,81 +181,20 @@ function run(command, args, cwd) {
   })
 }
 
-function parsePublishedVersions(source) {
-  if (source === undefined) return undefined
-  const trimmed = source.trim()
-  if (trimmed.length === 0) return undefined
-
-  let parsed
-  try {
-    parsed = JSON.parse(trimmed)
-  } catch {
-    throw new Error('AUTHMODULES_PUBLISHED_VERSIONS must be a JSON object')
-  }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error('AUTHMODULES_PUBLISHED_VERSIONS must be a JSON object')
-  }
-  const keys = Object.keys(parsed)
-  if (keys.length !== repositories.length || keys.some((repository) => !repositories.includes(repository))) {
-    throw new Error('AUTHMODULES_PUBLISHED_VERSIONS must name every package repository exactly once')
-  }
-  for (const repository of repositories) {
-    const version = parsed[repository]
-    if (!isExactVersion(version)) {
-      throw new Error(`${repository} must use an exact package version`)
-    }
-  }
-  return Object.freeze({ ...parsed })
-}
-
-function parsePublishedIntegrities(source) {
-  if (source === undefined) return undefined
-  const trimmed = source.trim()
-  if (trimmed.length === 0) return undefined
-
-  let parsed
-  try {
-    parsed = JSON.parse(trimmed)
-  } catch {
-    throw new Error('AUTHMODULES_PUBLISHED_INTEGRITIES must be a JSON object')
-  }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error('AUTHMODULES_PUBLISHED_INTEGRITIES must be a JSON object')
-  }
-  const keys = Object.keys(parsed)
-  if (keys.length !== repositories.length || keys.some((repository) => !repositories.includes(repository))) {
-    throw new Error('AUTHMODULES_PUBLISHED_INTEGRITIES must name every package repository exactly once')
-  }
-  for (const repository of repositories) {
-    if (!isExactIntegrity(parsed[repository])) {
-      throw new Error(`${repository} must use an exact package integrity`)
-    }
-  }
-  return Object.freeze({ ...parsed })
-}
-
-async function assertPublishedIntegrities(versions, expectedIntegrities) {
-  for (const repository of repositories) {
-    const packageSpec = `@authmodules/${repository}@${versions[repository]}`
-    const resolveIntegrity = async () => {
-      const stdout = await run(npm, [
-        'view',
-        packageSpec,
-        'dist.integrity',
-        '--json',
-        '--registry=https://npm.pkg.github.com'
-      ], consumerRoot)
-      const integrity = JSON.parse(stdout)
-      if (!isExactIntegrity(integrity)) {
-        throw new Error(`${packageSpec} registry metadata does not contain one SHA-512 integrity`)
+async function readPublishedVersions() {
+  const manifest = JSON.parse(
+    await readFile(path.join(projectRoot, '.release-please-manifest.json'), 'utf8')
+  )
+  assertReleasePleaseManifest(manifest)
+  return Object.freeze(Object.fromEntries(
+    repositories.map((repository) => {
+      const version = manifest[`packages/${repository}`]
+      if (!isExactVersion(version)) {
+        throw new Error(`${repository} must use an exact package version`)
       }
-      return integrity
-    }
-    const actual = await retry(resolveIntegrity, { attempts: 6, delayMilliseconds: 5_000 })
-    if (actual !== expectedIntegrities[repository]) {
-      throw new Error(`${packageSpec} registry integrity does not match the release plan`)
-    }
-  }
+      return [repository, version]
+    })
+  ))
 }
 
 async function retry(operation, options) {

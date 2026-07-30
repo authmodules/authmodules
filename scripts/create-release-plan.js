@@ -10,7 +10,6 @@ import {
 
 const execFileAsync = promisify(execFile)
 const baseSha = requiredSha('AUTHMODULES_BASE_SHA')
-const headSha = requiredSha('AUTHMODULES_HEAD_SHA')
 const outputPath = process.env.GITHUB_OUTPUT
 const root = path.resolve(import.meta.dirname, '..')
 const currentManifest = parseManifest(
@@ -27,7 +26,6 @@ const knownPaths = new Map(
 
 assertReleasePleaseManifest(currentManifest, { label: 'Current release manifest' })
 assertReleasePleaseManifest(previousManifest, {
-  allowEmpty: true,
   label: 'Previous release manifest'
 })
 
@@ -71,7 +69,7 @@ if (outputPath) {
   await appendFile(outputPath, `count=${changed.length}\n`)
 }
 
-console.log(`Release plan contains ${changed.length} package(s) at ${headSha}`)
+console.log(`Release plan contains ${changed.length} package(s)`)
 
 function requiredSha(name) {
   const value = process.env[name]

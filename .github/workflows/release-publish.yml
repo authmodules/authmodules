@@ -6,16 +6,6 @@ on:
       - main
     paths:
       - .release-please-manifest.json
-  workflow_dispatch:
-    inputs:
-      release_base_sha:
-        description: Exact parent SHA of the merged Release Please commit
-        required: true
-        type: string
-      release_head_sha:
-        description: Exact merged Release Please commit SHA to repair
-        required: true
-        type: string
 
 concurrency:
   group: release-publish-main
@@ -28,59 +18,23 @@ jobs:
   plan:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    permissions:
-      contents: read
-      pull-requests: read
     outputs:
-      base_sha: ${{ steps.context.outputs.base_sha }}
       count: ${{ steps.release_plan.outputs.count }}
-      head_sha: ${{ steps.context.outputs.head_sha }}
       matrix: ${{ steps.release_plan.outputs.matrix }}
-      release: ${{ steps.trigger.outputs.release }}
     steps:
-      - name: Checkout release tooling
+      - name: Checkout release commit
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Resolve release context
-        id: context
-        run: node scripts/resolve-release-publish-context.js
-        env:
-          AUTHMODULES_PUSH_BASE_SHA: ${{ github.event.before }}
-          AUTHMODULES_REPAIR_BASE_SHA: ${{ inputs.release_base_sha }}
-          AUTHMODULES_REPAIR_HEAD_SHA: ${{ inputs.release_head_sha }}
-      - name: Checkout exact release source
-        uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-          path: release-source
-          persist-credentials: false
-          ref: ${{ steps.context.outputs.head_sha }}
-      - name: Detect bootstrap or release manifest
-        id: trigger
-        working-directory: release-source
-        run: node scripts/detect-release-trigger.js
-        env:
-          AUTHMODULES_BASE_SHA: ${{ steps.context.outputs.base_sha }}
-      - name: Verify Release Please merge
-        if: steps.trigger.outputs.release == 'true'
-        run: node scripts/verify-release-commit.js
-        env:
-          AUTHMODULES_BASE_SHA: ${{ steps.context.outputs.base_sha }}
-          AUTHMODULES_HEAD_SHA: ${{ steps.context.outputs.head_sha }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ref: ${{ github.sha }}
       - name: Create changed package matrix
-        if: steps.trigger.outputs.release == 'true'
         id: release_plan
-        working-directory: release-source
         run: node scripts/create-release-plan.js
         env:
-          AUTHMODULES_BASE_SHA: ${{ steps.context.outputs.base_sha }}
-          AUTHMODULES_HEAD_SHA: ${{ steps.context.outputs.head_sha }}
+          AUTHMODULES_BASE_SHA: ${{ github.event.before }}
 
   check:
-    if: needs.plan.outputs.release == 'true'
     needs: plan
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -104,7 +58,7 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-          ref: ${{ needs.plan.outputs.head_sha }}
+          ref: ${{ github.sha }}
       - name: Setup Node
         uses: actions/setup-node@v7
         with:
@@ -120,7 +74,6 @@ jobs:
           AUTHMODULES_POSTGRES_URL: postgres://authmodules:authmodules@127.0.0.1:5432/authmodules
 
   publish:
-    if: github.event_name == 'push' && needs.plan.outputs.release == 'true'
     needs:
       - plan
       - check
@@ -141,13 +94,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           persist-credentials: false
-          ref: ${{ needs.plan.outputs.head_sha }}
-      - name: Checkout release tooling
-        uses: actions/checkout@v7
-        with:
-          path: .release-tooling
-          persist-credentials: false
-          ref: ${{ github.workflow_sha }}
+          ref: ${{ github.sha }}
       - name: Setup Node
         uses: actions/setup-node@v7
         with:
@@ -163,22 +110,19 @@ jobs:
         run: npm run build --workspace "${PACKAGE_NAME}"
         env:
           PACKAGE_NAME: ${{ matrix.package }}
-      - name: Prepare exact tarball and attestations
-        id: evidence
-        run: node .release-tooling/scripts/prepare-package-release-evidence.js
+      - name: Prepare exact tarball and SBOM
+        id: package
+        run: node scripts/prepare-package-release.js
         env:
-          AUTHMODULES_CONTRACTS_DIRECTORY: packages/contracts
-          AUTHMODULES_EVIDENCE_DIRECTORY: ${{ runner.temp }}/release-evidence/${{ matrix.name }}
           AUTHMODULES_PACKAGE_DIRECTORY: ${{ matrix.path }}
-          AUTHMODULES_RELEASE_SHA: ${{ needs.plan.outputs.head_sha }}
-          AUTHMODULES_WORKFLOW_SHA: ${{ github.workflow_sha }}
+          AUTHMODULES_OUTPUT_DIRECTORY: ${{ runner.temp }}/release/${{ matrix.name }}
       - name: Resolve registry publication state
         id: publication
-        run: node .release-tooling/scripts/resolve-package-publication.js
+        run: node scripts/resolve-package-publication.js
         env:
-          AUTHMODULES_EXPECTED_INTEGRITY: ${{ steps.evidence.outputs.package_integrity }}
+          AUTHMODULES_EXPECTED_INTEGRITY: ${{ steps.package.outputs.package_integrity }}
           AUTHMODULES_PACKAGE_DIRECTORY: ${{ matrix.path }}
-          AUTHMODULES_PACKAGE_TARBALL: ${{ steps.evidence.outputs.package_tarball }}
+          AUTHMODULES_PACKAGE_TARBALL: ${{ steps.package.outputs.package_tarball }}
           AUTHMODULES_PUBLICATION_MODE: resolve
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Publish exact tarball to GitHub Packages
@@ -186,137 +130,29 @@ jobs:
         run: npm publish "${PACKAGE_TARBALL}" --ignore-scripts
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PACKAGE_TARBALL: ${{ steps.evidence.outputs.package_tarball }}
+          PACKAGE_TARBALL: ${{ steps.package.outputs.package_tarball }}
       - name: Verify registry package integrity
-        run: node .release-tooling/scripts/resolve-package-publication.js
+        run: node scripts/resolve-package-publication.js
         env:
-          AUTHMODULES_EXPECTED_INTEGRITY: ${{ steps.evidence.outputs.package_integrity }}
+          AUTHMODULES_EXPECTED_INTEGRITY: ${{ steps.package.outputs.package_integrity }}
           AUTHMODULES_PACKAGE_DIRECTORY: ${{ matrix.path }}
-          AUTHMODULES_PACKAGE_TARBALL: ${{ steps.evidence.outputs.package_tarball }}
+          AUTHMODULES_PACKAGE_TARBALL: ${{ steps.package.outputs.package_tarball }}
           AUTHMODULES_PUBLICATION_MODE: verify
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Attest build provenance
         uses: actions/attest@v4
         with:
-          predicate-path: ${{ steps.evidence.outputs.provenance_path }}
-          predicate-type: https://slsa.dev/provenance/v1
-          subject-path: ${{ steps.evidence.outputs.package_tarball }}
+          subject-path: ${{ steps.package.outputs.package_tarball }}
       - name: Attest SBOM
         uses: actions/attest@v4
         with:
-          subject-path: ${{ steps.evidence.outputs.package_tarball }}
-          sbom-path: ${{ steps.evidence.outputs.sbom_path }}
-      - name: Upload release evidence
-        uses: actions/upload-artifact@v7
-        with:
-          name: release-${{ matrix.name }}-${{ matrix.version }}-${{ needs.plan.outputs.head_sha }}
-          overwrite: true
-          path: |
-            ${{ steps.evidence.outputs.package_tarball }}
-            ${{ steps.evidence.outputs.provenance_path }}
-            ${{ steps.evidence.outputs.sbom_path }}
-            ${{ steps.evidence.outputs.evidence_path }}
-          if-no-files-found: error
-          compression-level: 0
-          retention-days: 90
+          subject-path: ${{ steps.package.outputs.package_tarball }}
+          sbom-path: ${{ steps.package.outputs.sbom_path }}
 
-  repair:
-    if: github.event_name == 'workflow_dispatch' && needs.plan.outputs.release == 'true'
+  consumer:
     needs:
       - plan
-      - check
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    environment: github-packages
-    permissions:
-      artifact-metadata: write
-      attestations: write
-      contents: read
-      id-token: write
-      packages: read
-    steps:
-      - name: Checkout exact release source
-        uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-          ref: ${{ needs.plan.outputs.head_sha }}
-      - name: Checkout release tooling
-        uses: actions/checkout@v7
-        with:
-          path: .release-tooling
-          persist-credentials: false
-          ref: ${{ github.workflow_sha }}
-      - name: Setup Node
-        uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: npm
-          registry-url: https://npm.pkg.github.com
-          scope: '@authmodules'
-      - name: Install exact npm
-        run: npm install --global npm@11.16.0
-      - name: Install workspace dependencies
-        run: npm ci
-      - name: Build package
-        run: npm run build --workspace "${PACKAGE_NAME}"
-        env:
-          PACKAGE_NAME: ${{ matrix.package }}
-      - name: Prepare exact tarball and attestations
-        id: evidence
-        run: node .release-tooling/scripts/prepare-package-release-evidence.js
-        env:
-          AUTHMODULES_CONTRACTS_DIRECTORY: packages/contracts
-          AUTHMODULES_EVIDENCE_DIRECTORY: ${{ runner.temp }}/release-evidence/${{ matrix.name }}
-          AUTHMODULES_PACKAGE_DIRECTORY: ${{ matrix.path }}
-          AUTHMODULES_RELEASE_SHA: ${{ needs.plan.outputs.head_sha }}
-          AUTHMODULES_WORKFLOW_SHA: ${{ github.workflow_sha }}
-      - name: Verify existing registry package integrity
-        run: node .release-tooling/scripts/resolve-package-publication.js
-        env:
-          AUTHMODULES_EXPECTED_INTEGRITY: ${{ steps.evidence.outputs.package_integrity }}
-          AUTHMODULES_PACKAGE_DIRECTORY: ${{ matrix.path }}
-          AUTHMODULES_PACKAGE_TARBALL: ${{ steps.evidence.outputs.package_tarball }}
-          AUTHMODULES_PUBLICATION_MODE: verify
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Attest build provenance
-        uses: actions/attest@v4
-        with:
-          predicate-path: ${{ steps.evidence.outputs.provenance_path }}
-          predicate-type: https://slsa.dev/provenance/v1
-          subject-path: ${{ steps.evidence.outputs.package_tarball }}
-      - name: Attest SBOM
-        uses: actions/attest@v4
-        with:
-          subject-path: ${{ steps.evidence.outputs.package_tarball }}
-          sbom-path: ${{ steps.evidence.outputs.sbom_path }}
-      - name: Upload release evidence
-        uses: actions/upload-artifact@v7
-        with:
-          name: release-${{ matrix.name }}-${{ matrix.version }}-${{ needs.plan.outputs.head_sha }}
-          overwrite: true
-          path: |
-            ${{ steps.evidence.outputs.package_tarball }}
-            ${{ steps.evidence.outputs.provenance_path }}
-            ${{ steps.evidence.outputs.sbom_path }}
-            ${{ steps.evidence.outputs.evidence_path }}
-          if-no-files-found: error
-          compression-level: 0
-          retention-days: 90
-
-  verify:
-    if: >-
-      always()
-      && needs.plan.outputs.release == 'true'
-      && needs.check.result == 'success'
-      && (needs.publish.result == 'success' || needs.repair.result == 'success')
-    needs:
-      - plan
-      - check
       - publish
-      - repair
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -326,9 +162,8 @@ jobs:
       - name: Checkout release commit
         uses: actions/checkout@v7
         with:
-          fetch-depth: 0
           persist-credentials: false
-          ref: ${{ needs.plan.outputs.head_sha }}
+          ref: ${{ github.sha }}
       - name: Setup Node
         uses: actions/setup-node@v7
         with:
@@ -340,81 +175,58 @@ jobs:
         run: npm install --global npm@11.16.0
       - name: Install workspace dependencies
         run: npm ci --ignore-scripts
-      - name: Download release evidence
-        uses: actions/download-artifact@v8
-        with:
-          pattern: release-*-${{ needs.plan.outputs.head_sha }}
-          path: ${{ runner.temp }}/release-evidence
-          merge-multiple: true
-      - name: Verify published packages and clean consumer
-        run: node scripts/verify-release-publication.js
+      - name: Verify published package set
+        run: node scripts/check-packed-consumer.js
         env:
-          AUTHMODULES_BASE_SHA: ${{ needs.plan.outputs.base_sha }}
-          AUTHMODULES_EVIDENCE_DIRECTORY: ${{ runner.temp }}/release-evidence
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AUTHMODULES_PUBLISHED: 'true'
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   github-release:
-    if: >-
-      !cancelled()
-      && needs.plan.result == 'success'
-      && needs.plan.outputs.release == 'true'
-      && needs.verify.result == 'success'
     needs:
       - plan
-      - verify
+      - consumer
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: write
-      pull-requests: write
     steps:
       - name: Checkout release commit
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: false
-          ref: ${{ needs.plan.outputs.head_sha }}
-      - name: Checkout release tooling
-        uses: actions/checkout@v7
-        with:
-          path: .release-tooling
-          persist-credentials: false
-          ref: ${{ github.workflow_sha }}
+          ref: ${{ github.sha }}
       - name: Setup Node
         uses: actions/setup-node@v7
         with:
           node-version: 24
-      - name: Resolve component release state
-        id: release_state
-        run: node .release-tooling/scripts/resolve-github-release-state.js
-        env:
-          AUTHMODULES_RELEASE_MATRIX: ${{ needs.plan.outputs.matrix }}
-          AUTHMODULES_RELEASE_SHA: ${{ needs.plan.outputs.head_sha }}
-          AUTHMODULES_RELEASE_STATE_MODE: resolve
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Create component tags and GitHub Releases
-        if: steps.release_state.outputs.create == 'true'
-        run: node .release-tooling/scripts/resolve-github-release-state.js
+        run: |
+          while IFS= read -r package; do
+            name="$(jq -r '.name' <<<"$package")"
+            package_path="$(jq -r '.path' <<<"$package")"
+            version="$(jq -r '.version' <<<"$package")"
+            tag="${name}-v${version}"
+            tag_target="$(git rev-list -n 1 "$tag" 2>/dev/null || true)"
+
+            if [[ -n "$tag_target" && "$tag_target" != "$RELEASE_SHA" ]]; then
+              echo "$tag points to $tag_target instead of $RELEASE_SHA" >&2
+              exit 1
+            fi
+            if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              echo "$tag already exists"
+              continue
+            fi
+
+            notes_file="$RUNNER_TEMP/${name}-${version}.md"
+            node scripts/release-notes.js "$package_path/CHANGELOG.md" "$version" > "$notes_file"
+            gh release create "$tag" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$RELEASE_SHA" \
+              --title "${name}: v${version}" \
+              --notes-file "$notes_file"
+          done < <(jq -c '.include[]' <<<"$RELEASE_MATRIX")
         env:
-          AUTHMODULES_RELEASE_MATRIX: ${{ needs.plan.outputs.matrix }}
-          AUTHMODULES_RELEASE_SHA: ${{ needs.plan.outputs.head_sha }}
-          AUTHMODULES_RELEASE_STATE_MODE: create
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Normalize Release Please lifecycle
-        if: >-
-          steps.release_state.outputs.create == 'true'
-          || steps.release_state.outputs.normalize == 'true'
-        run: node .release-tooling/scripts/resolve-github-release-state.js
-        env:
-          AUTHMODULES_RELEASE_MATRIX: ${{ needs.plan.outputs.matrix }}
-          AUTHMODULES_RELEASE_SHA: ${{ needs.plan.outputs.head_sha }}
-          AUTHMODULES_RELEASE_STATE_MODE: normalize
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Verify component tags and GitHub Releases
-        run: node .release-tooling/scripts/resolve-github-release-state.js
-        env:
-          AUTHMODULES_RELEASE_MATRIX: ${{ needs.plan.outputs.matrix }}
-          AUTHMODULES_RELEASE_SHA: ${{ needs.plan.outputs.head_sha }}
-          AUTHMODULES_RELEASE_STATE_MODE: verify
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_MATRIX: ${{ needs.plan.outputs.matrix }}
+          RELEASE_SHA: ${{ github.sha }}
