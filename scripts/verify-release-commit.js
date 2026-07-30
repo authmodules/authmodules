@@ -19,8 +19,11 @@ const candidates = pullRequests.filter((pullRequest) => (
   && pullRequest.base.ref === 'main'
   && pullRequest.merge_commit_sha === head
   && pullRequest.head.repo?.full_name === repository
-  && pullRequest.head.ref.startsWith('release-please--branches--main')
-  && pullRequest.labels.some((label) => label.name === 'autorelease: pending')
+  && pullRequest.head.ref === 'release-please--branches--main'
+  && pullRequest.labels.some((label) => (
+    label.name === 'autorelease: pending'
+    || label.name === 'autorelease: tagged'
+  ))
 ))
 
 if (candidates.length !== 1) {
@@ -37,7 +40,14 @@ if (!changedFiles.includes('.release-please-manifest.json')) {
   throw new Error('Release commit must update .release-please-manifest.json')
 }
 
-console.log(`Verified merged Release Please PR #${candidates[0].number} at ${head}`)
+const lifecycleLabels = candidates[0].labels.filter((label) => (
+  label.name === 'autorelease: pending'
+  || label.name === 'autorelease: tagged'
+)).map((label) => label.name)
+console.log(
+  `Verified merged Release Please PR #${candidates[0].number}`
+  + ` at ${head} (${lifecycleLabels.join(', ')})`
+)
 
 function requiredSha(name) {
   const value = process.env[name]

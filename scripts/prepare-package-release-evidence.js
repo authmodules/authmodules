@@ -2,6 +2,8 @@ import { execFile } from 'node:child_process'
 import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
+import { createPackageProvenance } from './package-provenance.js'
+import { createPackageSbom } from './package-sbom.js'
 import { isExactIntegrity, isExactVersion } from './release-manifest.js'
 
 const execFileAsync = promisify(execFile)
@@ -11,6 +13,8 @@ const contractsDirectory = process.env.AUTHMODULES_CONTRACTS_DIRECTORY
 const evidenceDirectory = process.env.AUTHMODULES_EVIDENCE_DIRECTORY
 const expectedIntegrity = process.env.AUTHMODULES_EXPECTED_INTEGRITY
 const outputPath = process.env.GITHUB_OUTPUT
+const releaseSha = requiredSha('AUTHMODULES_RELEASE_SHA')
+const workflowSha = requiredSha('AUTHMODULES_WORKFLOW_SHA')
 
 if (typeof packageDirectory !== 'string' || packageDirectory.length === 0) {
   throw new Error('AUTHMODULES_PACKAGE_DIRECTORY is required')
@@ -53,17 +57,43 @@ const sbomPath = path.join(
   evidenceRoot,
   `${packageManifest.name.slice('@authmodules/'.length)}-${packageManifest.version}.cdx.json`
 )
-await writeFile(sbomPath, `${JSON.stringify(createSbom(packageManifest, contractsManifest), null, 2)}\n`)
+const provenancePath = path.join(
+  evidenceRoot,
+  `${packageManifest.name.slice('@authmodules/'.length)}-${packageManifest.version}.provenance.json`
+)
+await writeFile(
+  sbomPath,
+  `${JSON.stringify(
+    createPackageSbom(packageManifest, contractsManifest, packResult.integrity),
+    null,
+    2
+  )}\n`
+)
+await writeFile(
+  provenancePath,
+  `${JSON.stringify(createPackageProvenance(packageManifest, {
+    eventName: required('GITHUB_EVENT_NAME'),
+    releaseSha,
+    repository: required('GITHUB_REPOSITORY'),
+    runAttempt: required('GITHUB_RUN_ATTEMPT'),
+    runId: required('GITHUB_RUN_ID'),
+    serverUrl: required('GITHUB_SERVER_URL'),
+    workflowRef: required('GITHUB_WORKFLOW_REF'),
+    workflowSha
+  }), null, 2)}\n`
+)
 await writeFile(evidencePath, `${JSON.stringify({
   schemaVersion: 1,
   package: packageManifest.name,
   version: packageManifest.version,
   integrity: packResult.integrity,
   tarball: packResult.filename,
-  sbom: path.basename(sbomPath)
+  sbom: path.basename(sbomPath),
+  provenance: path.basename(provenancePath)
 }, null, 2)}\n`)
 await appendFile(outputPath, `package_tarball=${tarballPath}\n`)
 await appendFile(outputPath, `sbom_path=${sbomPath}\n`)
+await appendFile(outputPath, `provenance_path=${provenancePath}\n`)
 await appendFile(outputPath, `evidence_path=${evidencePath}\n`)
 await appendFile(outputPath, `package_integrity=${packResult.integrity}\n`)
 
@@ -71,6 +101,20 @@ console.log(`${packageManifest.name}@${packageManifest.version} release evidence
 
 async function readManifest(directory) {
   return JSON.parse(await readFile(path.join(directory, 'package.json'), 'utf8'))
+}
+
+function required(name) {
+  const value = process.env[name]
+  if (!value) throw new Error(`${name} is required`)
+  return value
+}
+
+function requiredSha(name) {
+  const value = required(name)
+  if (!/^[0-9a-f]{40}$/.test(value)) {
+    throw new Error(`${name} must be a full lowercase commit SHA`)
+  }
+  return value
 }
 
 function assertPackageManifest(manifest) {
@@ -112,59 +156,4 @@ async function packPackage(directory, destination) {
     throw new Error('npm pack did not produce one valid package tarball')
   }
   return packed
-}
-
-function createSbom(manifest, contractsManifest) {
-  const rootRef = packagePurl(manifest)
-  const contractRange = manifest.peerDependencies?.['@authmodules/contracts']
-  const includesContracts = contractRange !== undefined
-  const contractsRef = packagePurl(contractsManifest)
-
-  return {
-    $schema: 'https://cyclonedx.org/schema/bom-1.6.schema.json',
-    bomFormat: 'CycloneDX',
-    specVersion: '1.6',
-    version: 1,
-    metadata: {
-      component: createComponent(manifest, rootRef)
-    },
-    components: includesContracts
-      ? [{
-          ...createComponent(contractsManifest, contractsRef),
-          scope: 'required',
-          properties: [{
-            name: 'authmodules:peerDependencyRange',
-            value: contractRange
-          }]
-        }]
-      : [],
-    dependencies: [
-      {
-        ref: rootRef,
-        dependsOn: includesContracts ? [contractsRef] : []
-      },
-      ...(includesContracts ? [{ ref: contractsRef, dependsOn: [] }] : [])
-    ]
-  }
-}
-
-function createComponent(manifest, bomRef) {
-  return {
-    type: 'library',
-    'bom-ref': bomRef,
-    group: 'authmodules',
-    name: manifest.name.slice('@authmodules/'.length),
-    version: manifest.version,
-    description: manifest.description,
-    licenses: [{
-      license: {
-        id: manifest.license
-      }
-    }],
-    purl: bomRef
-  }
-}
-
-function packagePurl(manifest) {
-  return `pkg:npm/%40authmodules/${manifest.name.slice('@authmodules/'.length)}@${manifest.version}`
 }

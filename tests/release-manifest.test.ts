@@ -48,8 +48,17 @@ test('release automation is manual, exact-head, and publication-gated', async ()
   const publishWorkflow = await readText('.github/workflows/release-publish.yml')
   const dispatchScript = await readText('scripts/dispatch-release-pr-check.js')
   const releasePlanScript = await readText('scripts/create-release-plan.js')
+  const releaseContextScript = await readText('scripts/resolve-release-publish-context.js')
+  const releaseCommitScript = await readText('scripts/verify-release-commit.js')
+  const releaseStateScript = await readText('scripts/resolve-github-release-state.js')
+  const packageProvenanceScript = await readText('scripts/package-provenance.js')
   const releaseTriggerScript = await readText('scripts/detect-release-trigger.js')
   const releaseVerificationScript = await readText('scripts/verify-release-publication.js')
+  const planJob = workflowSection(publishWorkflow, 'plan', 'check')
+  const publishJob = workflowSection(publishWorkflow, 'publish', 'repair')
+  const repairJob = workflowSection(publishWorkflow, 'repair', 'verify')
+  const verifyJob = workflowSection(publishWorkflow, 'verify', 'github-release')
+  const githubReleaseJob = workflowSection(publishWorkflow, 'github-release')
 
   assert.match(releasePullRequestWorkflow, /on:\n  workflow_dispatch:\n/)
   assert.doesNotMatch(releasePullRequestWorkflow, /\n  push:/)
@@ -60,6 +69,94 @@ test('release automation is manual, exact-head, and publication-gated', async ()
     publishWorkflow,
     /paths:\n      - \.release-please-manifest\.json/
   )
+  assert.match(publishWorkflow, /\n  workflow_dispatch:\n/)
+  assert.match(publishJob, /if: github\.event_name == 'push'/)
+  assert.match(publishJob, /packages: write/)
+  assert.match(publishJob, /npm publish/)
+  assert.match(repairJob, /if: github\.event_name == 'workflow_dispatch'/)
+  assert.match(repairJob, /packages: read/)
+  assert.doesNotMatch(repairJob, /packages: write|npm publish/)
+  assert.match(
+    publishWorkflow,
+    /pattern: release-\*-\$\{\{ needs\.plan\.outputs\.head_sha \}\}/
+  )
+  assert.match(
+    publishWorkflow,
+    /ref: \$\{\{ needs\.plan\.outputs\.head_sha \}\}/
+  )
+  assert.match(
+    publishJob,
+    /path: \.release-tooling[\s\S]*ref: \$\{\{ github\.workflow_sha \}\}/
+  )
+  assert.match(
+    repairJob,
+    /path: \.release-tooling[\s\S]*ref: \$\{\{ github\.workflow_sha \}\}/
+  )
+  assert.match(
+    repairJob,
+    /node \.release-tooling\/scripts\/prepare-package-release-evidence\.js/
+  )
+  assert.match(publishJob, /AUTHMODULES_RELEASE_SHA: \$\{\{ needs\.plan\.outputs\.head_sha \}\}/)
+  assert.match(repairJob, /AUTHMODULES_RELEASE_SHA: \$\{\{ needs\.plan\.outputs\.head_sha \}\}/)
+  assert.match(
+    publishJob,
+    /Verify registry package integrity[\s\S]*predicate-path: \$\{\{ steps\.evidence\.outputs\.provenance_path \}\}[\s\S]*Attest SBOM/
+  )
+  assert.match(
+    repairJob,
+    /Verify existing registry package integrity[\s\S]*predicate-path: \$\{\{ steps\.evidence\.outputs\.provenance_path \}\}[\s\S]*Attest SBOM/
+  )
+  assert.match(publishJob, /predicate-type: https:\/\/slsa\.dev\/provenance\/v1/)
+  assert.match(repairJob, /predicate-type: https:\/\/slsa\.dev\/provenance\/v1/)
+  assert.match(publishJob, /Upload release evidence[\s\S]*overwrite: true/)
+  assert.match(repairJob, /Upload release evidence[\s\S]*overwrite: true/)
+  assert.match(verifyJob, /ref: \$\{\{ needs\.plan\.outputs\.head_sha \}\}/)
+  assert.match(githubReleaseJob, /ref: \$\{\{ needs\.plan\.outputs\.head_sha \}\}/)
+  assert.match(
+    githubReleaseJob,
+    /Resolve component release state[\s\S]*Create component tags and GitHub Releases/
+  )
+  assert.match(
+    githubReleaseJob,
+    /Create component tags and GitHub Releases[\s\S]*Verify component tags and GitHub Releases/
+  )
+  assert.match(
+    githubReleaseJob,
+    /AUTHMODULES_RELEASE_STATE_MODE: create/
+  )
+  assert.doesNotMatch(githubReleaseJob, /release-please github-release|npm exec/)
+  assert.match(
+    publishWorkflow,
+    /AUTHMODULES_BASE_SHA: \$\{\{ needs\.plan\.outputs\.base_sha \}\}/
+  )
+  assert.match(
+    releaseContextScript,
+    /Current main release manifest differs from the requested release commit/
+  )
+  assert.match(
+    releaseContextScript,
+    /Release base must be the first parent of the release commit/
+  )
+  assert.match(releaseCommitScript, /autorelease: tagged/)
+  assert.doesNotMatch(
+    planJob,
+    /Verify Release Please merge[\s\S]{0,160}working-directory: release-source/
+  )
+  assert.match(
+    releaseStateScript,
+    /Exactly one pending Release Please PR must match the release commit/
+  )
+  assert.match(releaseStateScript, /points to \$\{targetSha\} instead of \$\{releaseSha\}/)
+  assert.match(releaseStateScript, /ref: `refs\/tags\/\$\{state\.tag\}`/)
+  assert.match(releaseStateScript, /target_commitish: releaseSha/)
+  assert.match(
+    packageProvenanceScript,
+    /name: 'release source'[\s\S]*gitCommit: context\.releaseSha/
+  )
+  assert.match(
+    packageProvenanceScript,
+    /name: 'release workflow'[\s\S]*gitCommit: context\.workflowSha/
+  )
   assert.match(
     releasePlanScript,
     /assertReleasePleaseManifest\(currentManifest, \{ label: 'Current release manifest' \}\)/
@@ -69,7 +166,10 @@ test('release automation is manual, exact-head, and publication-gated', async ()
     /shouldPublishReleaseManifest\(previousManifest, manifest\)/
   )
   assert.match(releaseTriggerScript, /if \(ref === '0'\.repeat\(40\)\) return \{\}/)
-  assert.match(publishWorkflow, /AUTHMODULES_BASE_SHA: \$\{\{ github\.event\.before \}\}/)
+  assert.match(
+    publishWorkflow,
+    /AUTHMODULES_PUSH_BASE_SHA: \$\{\{ github\.event\.before \}\}/
+  )
   assert.match(
     releaseVerificationScript,
     /assertReleasePleaseManifest\(currentManifest, \{ label: 'Current release manifest' \}\)/
@@ -204,4 +304,14 @@ async function readJson(relativePath) {
 
 async function readText(relativePath) {
   return readFile(path.join(root, relativePath), 'utf8')
+}
+
+function workflowSection(source, name, nextName) {
+  const start = source.indexOf(`\n  ${name}:\n`)
+  assert.notEqual(start, -1, `${name} job is missing`)
+  const end = nextName === undefined
+    ? source.length
+    : source.indexOf(`\n  ${nextName}:\n`, start + 1)
+  assert.notEqual(end, -1, `${nextName} job is missing after ${name}`)
+  return source.slice(start, end)
 }

@@ -14,7 +14,7 @@ const pullRequests = await github(
 )
 const candidates = pullRequests.filter((pullRequest) => (
   pullRequest.head.repo?.full_name === repository
-  && pullRequest.head.ref.startsWith('release-please--branches--main')
+  && pullRequest.head.ref === 'release-please--branches--main'
   && pullRequest.labels.some((label) => label.name === 'autorelease: pending')
 ))
 
