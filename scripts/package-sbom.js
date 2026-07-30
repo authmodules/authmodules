@@ -7,6 +7,8 @@ export function createPackageSbom(manifest, contractsManifest, tarballIntegrity)
   if (!isExactIntegrity(tarballIntegrity)) {
     throw new Error('Package SBOM requires an exact SHA-512 tarball integrity')
   }
+  assertSupportedDependencies(manifest)
+  assertSupportedDependencies(contractsManifest)
   const rootRef = packagePurl(manifest)
   const contractRange = manifest.peerDependencies?.['@authmodules/contracts']
   const includesContracts = contractRange !== undefined
@@ -42,6 +44,27 @@ export function createPackageSbom(manifest, contractsManifest, tarballIntegrity)
       },
       ...(includesContracts ? [{ ref: contractsRef, dependsOn: [] }] : [])
     ]
+  }
+}
+
+function assertSupportedDependencies(manifest) {
+  for (const field of ['dependencies', 'optionalDependencies']) {
+    const names = Object.keys(manifest[field] ?? {})
+    if (names.length > 0) {
+      throw new Error(
+        `${manifest.name} ${field} are not represented in the package SBOM: ${names.join(', ')}`
+      )
+    }
+  }
+
+  const unsupportedPeers = Object.keys(manifest.peerDependencies ?? {})
+    .filter((name) => name !== '@authmodules/contracts')
+  if (unsupportedPeers.length > 0) {
+    throw new Error(
+      `${manifest.name} peerDependencies are not represented in the package SBOM: ${
+        unsupportedPeers.join(', ')
+      }`
+    )
   }
 }
 

@@ -32,14 +32,16 @@ Dependency review and CodeQL remain separate workflows. Dependabot owns npm and 
 Release preparation is intentionally manual:
 
 1. Dispatch `Prepare release pull request`.
-2. Release Please creates or updates one ready pull request.
-3. The workflow explicitly dispatches `check.yml` for that pull request head because events created by `GITHUB_TOKEN` require special handling.
+2. Release Please creates or updates one ready pull request without lifecycle labels. The
+   workflow rejects a same-named fork branch and resolves the pull request through an
+   owner-qualified API query.
+3. The workflow refreshes the root lockfile and dispatches `check.yml` for the exact pull request head.
 4. Review the generated versions and changelogs.
 5. Merge the release pull request only after its exact head is green.
 
 Ordinary pushes and merges do not create release pull requests.
 
-The publish workflow runs only when `.release-please-manifest.json` changes on `main`. It verifies that the commit came from a merged Release Please pull request, computes the changed package paths, reruns the complete check, and publishes only those packages.
+The publish workflow runs only when `.release-please-manifest.json` changes on `main`. Before planning a release, it confirms that the exact commit belongs to one merged `chore: release main` pull request from `release-please--branches--main`. It then computes the changed package paths, reruns the complete check, and publishes only those packages.
 
 ## Package publication
 
@@ -52,39 +54,9 @@ For every changed workspace the workflow:
 3. Records the tarball SHA-512 integrity.
 4. Publishes the tarball with `GITHUB_TOKEN`.
 5. Treats an identical existing version as a safe rerun and a different integrity as a fatal conflict.
-6. Verifies registry integrity and uploads attestations and 90-day evidence.
+6. Verifies registry integrity and creates build-provenance and SBOM attestations.
 
-The provenance predicate records the release source commit separately from the workflow-definition commit. This keeps a manual repair truthful when the release commit is an ancestor of the `main` commit that supplies the repaired workflow.
-
-### GitHub Actions workflow provenance
-
-The package release uses a SLSA provenance v1 predicate with GitHub's supported Actions workflow build type. Its external parameters contain only the standard `workflow` object: repository URL, workflow path, and Git ref.
-
-The standard `github` internal parameters record the event name, immutable repository and owner IDs, and runner environment. Resolved dependencies bind both the workflow definition and the separately checked-out release source to exact `gitCommit` digests. The builder ID identifies the exact workflow path and ref, while the invocation ID identifies the exact workflow run and attempt. Package identity and version remain in the attested tarball subject and its release evidence. The predicate is signed through `actions/attest`.
-
-After all matrix jobs succeed, a clean consumer installs the full package set from GitHub Packages and verifies every expected integrity. Component tags and GitHub Releases are created only after that verification succeeds. Tags use `<component>-v<version>`.
-
-Tag creation is performed through an exact-SHA state machine rather than a moving branch ref. It validates all existing component state before mutation, creates each missing lightweight tag at the pinned release commit, and only then creates the matching GitHub Release. The verified tag target is the release commit authority; GitHub may retain a branch-valued `target_commitish` as auxiliary Release metadata after the tag exists. A rerun safely resumes absent, tag-only, release-only, or already-complete component state; any conflicting tag target or canonical Release metadata remains a fatal error.
-
-Evidence uploads overwrite only the same component/version/release-SHA artifact name within the same workflow run. This lets a later run attempt reproduce and replace the identical logical evidence bundle instead of failing before release recovery starts.
-
-Tag rulesets allow the release workflow to create component tags. Updates and deletions remain blocked without bypass.
-
-## Consolidated `0.1.0` reset
-
-The imported package snapshots deliberately start a new release line at `0.1.0`. Legacy repository history, package tags, GitHub Releases, and package versions are not imported.
-
-The previous GitHub Package records must be removed before the first consolidated release pull request is merged because GitHub Packages does not permit replacing an existing `name@version`. This is a one-time destructive cutover:
-
-1. Verify the monorepo migration pull request is merged and green.
-2. Run all local tarball and clean-consumer checks for the exact `0.1.0` sources.
-3. Delete the legacy package versions, with `contracts@0.1.0` last.
-4. Merge the initial Release Please pull request.
-5. Let the protected publish workflow release every changed workspace through a separate matrix job.
-6. Confirm all 15 packages are public, linked to `authmodules/authmodules`, and installable.
-7. Delete the 15 obsolete package repositories only after registry and consumer verification.
-
-Reusing the same public coordinates invalidates any cached legacy tarballs and lockfile integrities. This reset is permitted only because the packages have no consumers. Once the new namespace is populated, the previous deleted package versions can no longer be restored under the same coordinates.
+After every matrix job succeeds, a clean consumer installs the complete package set from GitHub Packages and confirms, with bounded retries for registry propagation, that every package is public and linked to `authmodules/authmodules`. Before the first public mutation, one component-release command validates every changelog, tag target, and existing Release. It creates only missing Releases, never replaces the repository's Latest Release, and then verifies the complete changed set again. Existing tags must point to the same release commit; updates and deletions remain blocked by the tag ruleset.
 
 ## Package consumers
 

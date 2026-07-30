@@ -10,7 +10,6 @@ concurrency:
 permissions:
   actions: write
   contents: write
-  issues: write
   pull-requests: write
 
 jobs:
@@ -32,27 +31,65 @@ jobs:
         run: npm install --global npm@11.16.0
       - name: Install release tooling
         run: npm ci --ignore-scripts
-      - name: Create or update release pull request
-        run: >-
-          npm exec -- release-please release-pr
-          --repo-url="${GITHUB_REPOSITORY}"
-          --target-branch=main
-          --token="${RELEASE_PLEASE_TOKEN}"
-          --config-file=release-please-config.json
-          --manifest-file=.release-please-manifest.json
+      - name: Reject conflicting release pull requests
+        run: |
+          pull_requests="$(
+            gh api \
+              --paginate \
+              --slurp \
+              "repos/$GITHUB_REPOSITORY/pulls?state=open&base=main&per_page=100"
+          )"
+          conflicts="$(
+            jq \
+              --arg branch "release-please--branches--main" \
+              --arg repository "$GITHUB_REPOSITORY" \
+              '[
+                .[][]
+                | select(
+                    .head.ref == $branch
+                    and .head.repo.full_name != $repository
+                  )
+              ] | length' \
+              <<<"$pull_requests"
+          )"
+          if [[ "$conflicts" != 0 ]]; then
+            echo "A fork uses the reserved release pull request branch" >&2
+            exit 1
+          fi
         env:
-          RELEASE_PLEASE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Resolve release pull request
-        id: release_pr
-        run: node scripts/dispatch-release-pr-check.js
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create or update release pull request
+        run: node scripts/create-release-pr.js
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Resolve release pull request
+        id: release_pr
+        run: |
+          pull_requests="$(
+            gh api \
+              "repos/$GITHUB_REPOSITORY/pulls?state=open&base=main&head=${GITHUB_REPOSITORY_OWNER}:release-please--branches--main&per_page=2"
+          )"
+          count="$(jq length <<<"$pull_requests")"
+          if [[ "$count" == 0 ]]; then
+            echo "pr_number=" >> "$GITHUB_OUTPUT"
+            echo "No open release pull request"
+            exit 0
+          fi
+          if [[ "$count" != 1 ]]; then
+            echo "Expected exactly one open release pull request" >&2
+            exit 1
+          fi
+          echo "pr_number=$(jq -r '.[0].number' <<<"$pull_requests")" >> "$GITHUB_OUTPUT"
+          echo "head_ref=$(jq -r '.[0].head.ref' <<<"$pull_requests")" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$(jq -r '.[0].head.sha' <<<"$pull_requests")" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Checkout release pull request
         if: steps.release_pr.outputs.pr_number != ''
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
-          ref: ${{ steps.release_pr.outputs.head_ref }}
+          ref: ${{ steps.release_pr.outputs.head_sha }}
           token: ${{ secrets.GITHUB_TOKEN }}
       - name: Refresh root workspace lockfile
         if: steps.release_pr.outputs.pr_number != ''
@@ -71,7 +108,20 @@ jobs:
         env:
           RELEASE_BRANCH: ${{ steps.release_pr.outputs.head_ref }}
       - name: Dispatch exact release pull request check
-        run: node scripts/dispatch-release-pr-check.js
+        if: steps.release_pr.outputs.pr_number != ''
+        run: |
+          pull_request="$(
+            gh pr view "$PR_NUMBER" \
+              --repo "$GITHUB_REPOSITORY" \
+              --json baseRefOid,headRefOid,title
+          )"
+          gh workflow run check.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref "$RELEASE_BRANCH" \
+            -f "base_sha=$(jq -r '.baseRefOid' <<<"$pull_request")" \
+            -f "head_sha=$(jq -r '.headRefOid' <<<"$pull_request")" \
+            -f "pr_title=$(jq -r '.title' <<<"$pull_request")"
         env:
-          AUTHMODULES_DISPATCH_CHECK: 'true'
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ steps.release_pr.outputs.pr_number }}
+          RELEASE_BRANCH: ${{ steps.release_pr.outputs.head_ref }}

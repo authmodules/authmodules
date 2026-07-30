@@ -47,6 +47,21 @@ test('package SBOMs reject an inexact tarball integrity', async () => {
   )
 })
 
+test('package SBOMs reject dependencies they cannot represent', async () => {
+  const contracts = await readManifest('contracts')
+
+  for (const [field, value] of [
+    ['dependencies', { dependency: '1.0.0' }],
+    ['optionalDependencies', { optional: '1.0.0' }],
+    ['peerDependencies', { unsupported: '1.0.0' }]
+  ]) {
+    assert.throws(
+      () => createPackageSbom({ ...contracts, [field]: value }, contracts, integrity),
+      new RegExp(`${field} are not represented`)
+    )
+  }
+})
+
 async function readManifest(name) {
   return JSON.parse(
     await readFile(path.join(root, 'packages', name, 'package.json'), 'utf8')
