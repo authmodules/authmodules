@@ -116,6 +116,8 @@ test('release automation is manual, exact-head, and publication-gated', async ()
     /!cancelled\(\)[\s\S]*needs\.plan\.result == 'success'[\s\S]*needs\.verify\.result == 'success'/
   )
   assert.doesNotMatch(githubReleaseJob, /always\(\)/)
+  assert.match(githubReleaseJob, /pull-requests: write/)
+  assert.doesNotMatch(githubReleaseJob, /issues: write/)
   assert.match(githubReleaseJob, /ref: \$\{\{ needs\.plan\.outputs\.head_sha \}\}/)
   assert.match(
     githubReleaseJob,
@@ -150,6 +152,10 @@ test('release automation is manual, exact-head, and publication-gated', async ()
   assert.match(
     releaseStateScript,
     /Exactly one pending Release Please PR must match the release commit/
+  )
+  assert.match(
+    releaseStateScript,
+    /await assertLifecycleMutationAccess\(pendingPullRequest\)[\s\S]*await createComponentReleases\(states\)/
   )
   assert.match(releaseStateScript, /points to \$\{targetSha\} instead of \$\{releaseSha\}/)
   assert.match(releaseStateScript, /ref: `refs\/tags\/\$\{state\.tag\}`/)

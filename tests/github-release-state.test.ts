@@ -106,6 +106,22 @@ test('GitHub release creation pins every mutation and recovers split state', asy
       }])
     })
   })
+
+  await context.test('lifecycle permission failures abort before public mutations', async () => {
+    await withGitHubFixture({
+      denyLifecycleMutation: true,
+      names: ['contracts'],
+      present: []
+    }, async (fixture) => {
+      await assert.rejects(
+        fixture.run('create'),
+        /Resource not accessible by integration; accepted permissions: pull_requests=write/
+      )
+      assert.deepEqual(fixture.mutations(), [])
+      assert.deepEqual(fixture.refs(), [])
+      assert.deepEqual(fixture.releases(), [])
+    })
+  })
 })
 
 test('GitHub release state validates target commits and annotated tags', async (context) => {
@@ -269,6 +285,16 @@ async function withGitHubFixture(options, operation) {
       request.method === 'POST'
       && url.pathname === '/repos/authmodules/authmodules/issues/8/labels'
     ) {
+      if (options.denyLifecycleMutation) {
+        response.writeHead(403, {
+          'Content-Type': 'application/json',
+          'X-Accepted-GitHub-Permissions': 'pull_requests=write'
+        })
+        response.end(JSON.stringify({
+          message: 'Resource not accessible by integration'
+        }))
+        return
+      }
       const body = JSON.parse(await readRequest(request))
       for (const label of body.labels) labels.add(label)
       return json(response, 200, [...labels].map((name) => ({ name })))

@@ -94,7 +94,8 @@ if (mode === 'normalize') {
   console.log(`${states.length} component releases match ${releaseSha}`)
 } else if (mode === 'create') {
   if (completeCount !== states.length) {
-    await assertOnlyPendingRelease(lifecycle)
+    const pendingPullRequest = await assertOnlyPendingRelease(lifecycle)
+    await assertLifecycleMutationAccess(pendingPullRequest)
     await createComponentReleases(states)
   } else {
     console.log(`${states.length} component releases already exist at ${releaseSha}`)
@@ -114,6 +115,22 @@ if (mode === 'normalize') {
     `Release Please PR #${pendingPullRequest.number}`
     + ` is the only pending release for ${releaseSha}`
   )
+}
+
+async function assertLifecycleMutationAccess(pullRequest) {
+  const labels = await github(
+    `/repos/${repository}/issues/${pullRequest.number}/labels`,
+    {
+      body: { labels: ['autorelease: pending'] },
+      method: 'POST'
+    }
+  )
+  if (
+    !Array.isArray(labels)
+    || !labels.some((label) => label.name === 'autorelease: pending')
+  ) {
+    throw new Error('Release Please lifecycle mutation preflight returned invalid labels')
+  }
 }
 
 async function createComponentReleases(releaseStates) {
@@ -377,7 +394,19 @@ async function github(
     return undefined
   }
   if (!response.ok) {
-    throw new Error(`GitHub API ${method} ${endpoint} failed (${response.status})`)
+    const payload = await response.json().catch(() => undefined)
+    const message = typeof payload?.message === 'string'
+      ? `: ${payload.message}`
+      : ''
+    const acceptedPermissions = response.headers.get('x-accepted-github-permissions')
+    const permissionHint = acceptedPermissions
+      ? `; accepted permissions: ${acceptedPermissions}`
+      : ''
+    throw new Error(
+      `GitHub API ${method} ${endpoint} failed (${response.status})`
+      + message
+      + permissionHint
+    )
   }
   if (response.status === 204) return undefined
   return response.json()
