@@ -46,8 +46,8 @@ if (write) {
 }
 
 async function createSnapshot(packageManifest) {
-  if (typeof packageManifest.name !== 'string' || typeof packageManifest.types !== 'string') {
-    throw new Error('Package name and top-level types entrypoint are required')
+  if (typeof packageManifest.name !== 'string') {
+    throw new Error('Package name is required')
   }
 
   const publicTypeEntrypoints = await collectPublicTypeEntrypoints(packageManifest)
@@ -65,7 +65,7 @@ async function createSnapshot(packageManifest) {
     entrypoints: {
       type: packageManifest.type ?? null,
       main: packageManifest.main ?? null,
-      types: packageManifest.types,
+      types: packageManifest.types ?? null,
       exports: packageManifest.exports ?? null
     },
     compatibility: {
@@ -87,9 +87,15 @@ async function createSnapshot(packageManifest) {
 }
 
 async function collectPublicTypeEntrypoints(packageManifest) {
-  const targets = new Set([packageManifest.types])
+  const targets = new Set()
+  if (packageManifest.types !== undefined) {
+    targets.add(normalizeTopLevelTypesTarget(packageManifest.types))
+  }
   collectDeclarationTargets(packageManifest.exports, targets)
   collectTypesVersionsTargets(packageManifest.typesVersions, targets)
+  if (targets.size === 0) {
+    throw new Error('At least one public type entrypoint is required through types or exports')
+  }
   const entrypoints = new Set()
 
   for (const target of targets) {
@@ -128,6 +134,14 @@ function collectDeclarationTargets(value, targets) {
     return
   }
   if (value !== null && typeof value === 'object') {
+    const explicitTypeConditions = Object.entries(value)
+      .filter(([condition]) => condition === 'types' || condition.startsWith('types@'))
+    if (explicitTypeConditions.length > 0) {
+      for (const [, entry] of explicitTypeConditions) {
+        collectDeclarationTargets(entry, targets)
+      }
+      return
+    }
     for (const entry of Object.values(value)) collectDeclarationTargets(entry, targets)
   }
 }
@@ -176,6 +190,20 @@ function resolvePackageDeclaration(target) {
   const resolved = path.resolve(packageRoot, target)
   assertWithinPackage(resolved)
   return resolved
+}
+
+function normalizeTopLevelTypesTarget(target) {
+  if (typeof target !== 'string' || target.length === 0) {
+    throw new Error('Top-level types entrypoint must be a non-empty package-relative path')
+  }
+  if (
+    path.isAbsolute(target)
+    || /^[A-Za-z]:[\\/]/.test(target)
+    || /^[A-Za-z][A-Za-z+.-]*:/.test(target)
+  ) {
+    throw new Error(`Top-level types entrypoint must be package-relative, received ${target}`)
+  }
+  return target.startsWith('./') ? target : `./${target}`
 }
 
 async function resolvePackageDeclarationEntrypoint(target) {
@@ -503,28 +531,45 @@ async function assertDeclarationScanner(packageManifest) {
   ) {
     throw new Error('Declaration export target mapping failed its internal invariant')
   }
+  const packageEntrypoints = await collectPublicTypeEntrypoints(packageManifest)
+  const selfTestEntrypoint = packageEntrypoints[0]
+  const selfTestTarget = `./${normalizePath(path.relative(packageRoot, selfTestEntrypoint))}`
   const mappedImportDeclarations = await resolvePackageImportDeclarations({
     imports: {
-      '#model': packageManifest.types
+      '#model': selfTestTarget
     }
   }, '#model')
   if (
     mappedImportDeclarations.length !== 1
-    || mappedImportDeclarations[0] !== resolvePackageDeclaration(packageManifest.types)
+    || mappedImportDeclarations[0] !== selfTestEntrypoint
   ) {
     throw new Error('Package import declaration mapping failed its internal invariant')
   }
-  const entrypointDirectory = path.posix.dirname(packageManifest.types)
+  const entrypointDirectory = path.posix.dirname(selfTestTarget)
   const typesVersionsEntrypoints = await collectPublicTypeEntrypoints({
-    types: packageManifest.types,
+    types: selfTestTarget.slice(2),
     typesVersions: {
       '*': {
         '*': [`${entrypointDirectory.replace(/^\.\//, '')}/*`]
       }
     }
   })
-  if (!typesVersionsEntrypoints.includes(resolvePackageDeclaration(packageManifest.types))) {
+  if (!typesVersionsEntrypoints.includes(selfTestEntrypoint)) {
     throw new Error('typesVersions declaration discovery failed its internal invariant')
+  }
+  const explicitTypeEntrypoints = await collectPublicTypeEntrypoints({
+    exports: {
+      '.': {
+        types: selfTestTarget,
+        import: './missing-runtime.js'
+      }
+    }
+  })
+  if (
+    explicitTypeEntrypoints.length !== 1
+    || explicitTypeEntrypoints[0] !== selfTestEntrypoint
+  ) {
+    throw new Error('Explicit export type condition handling failed its internal invariant')
   }
   const changedDocumentation = sourceText.replace('comment-only.js', 'different-comment.js')
   if (declarationFingerprint(sourceText) !== declarationFingerprint(changedDocumentation)) {
@@ -761,6 +806,14 @@ function collectSemanticJsDocTags(comment) {
 
 function collectOptionalCompatibilityFields(packageManifest) {
   const fields = {}
+  if (packageManifest.dependencies !== undefined) {
+    fields.dependencies = canonicalizeUnorderedObject(packageManifest.dependencies)
+  }
+  if (packageManifest.optionalDependencies !== undefined) {
+    fields.optionalDependencies = canonicalizeUnorderedObject(
+      packageManifest.optionalDependencies
+    )
+  }
   if (packageManifest.imports !== undefined) fields.imports = packageManifest.imports
   for (const key of ['os', 'cpu', 'libc']) {
     if (packageManifest[key] === undefined) continue
