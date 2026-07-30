@@ -2,9 +2,9 @@ import { readdir, readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const root = path.resolve(fileURLToPath(new URL('../..', import.meta.url)))
-const specDirectory = path.join(root, 'authmodules', 'spec', 'contracts')
-const packageDirectory = path.join(root, 'contracts', 'src')
+const root = path.resolve(fileURLToPath(new URL('../', import.meta.url)))
+const specDirectory = path.join(root, 'spec', 'contracts')
+const packageDirectory = path.join(root, 'packages', 'contracts', 'src')
 
 let failed = false
 

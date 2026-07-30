@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "package": "@authmodules/guard-memory",
+  "entrypoints": {
+    "type": "module",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js"
+      },
+      "./package.json": "./package.json"
+    }
+  },
+  "compatibility": {
+    "engines": {
+      "node": ">=24"
+    },
+    "peerDependencies": {
+      "@authmodules/contracts": "^0.1.0"
+    },
+    "peerDependenciesMeta": null,
+    "typesVersions": null,
+    "sideEffects": false
+  },
+  "declarations": [
+    {
+      "path": "dist/guard/create-memory-attempt-guard.d.ts",
+      "sha256": "154d2353f82b33c3578c94949945b5be28bdd263c1ba75b8e746a8947cc112f0"
+    },
+    {
+      "path": "dist/guard/types.d.ts",
+      "sha256": "1fbdefc18b37d4a6e5f4c8280f4b91790d3a01cc8ac658d6f3b5a5cfee43b688"
+    },
+    {
+      "path": "dist/index.d.ts",
+      "sha256": "2e53db77d26e183ec15e244d5afd333b45dba5dc369ba6cafd28a7110c86ebce"
+    }
+  ]
+}

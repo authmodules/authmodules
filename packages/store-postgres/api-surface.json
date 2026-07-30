@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "package": "@authmodules/store-postgres",
+  "entrypoints": {
+    "type": "module",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js"
+      },
+      "./package.json": "./package.json"
+    }
+  },
+  "compatibility": {
+    "engines": {
+      "node": ">=24"
+    },
+    "peerDependencies": {
+      "@authmodules/contracts": "^0.1.0"
+    },
+    "peerDependenciesMeta": null,
+    "typesVersions": null,
+    "sideEffects": false
+  },
+  "declarations": [
+    {
+      "path": "dist/database/types.d.ts",
+      "sha256": "ed9d184550eea491a6db141e75925912e55c276110f392f20dc4d9bb3f77222f"
+    },
+    {
+      "path": "dist/index.d.ts",
+      "sha256": "40b1e6268f2b3fbc9ca6c213c8905f1e7e94f03f7f5575b1342a1bbbc93cae6f"
+    },
+    {
+      "path": "dist/schema/postgres-schema.d.ts",
+      "sha256": "b66455ed7163dfcddd188abd7a4222d0682223cfb5b130cb2a0d0b64e6fc4bbb"
+    },
+    {
+      "path": "dist/store/create-postgres-auth-store.d.ts",
+      "sha256": "7564690eda2b20d36ec5b64f468603b2afbe28801d7e7ed8865613d2f7eab5c7"
+    }
+  ]
+}

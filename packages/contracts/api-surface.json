@@ -1,0 +1,158 @@
+{
+  "schemaVersion": 1,
+  "package": "@authmodules/contracts",
+  "entrypoints": {
+    "type": "module",
+    "main": null,
+    "types": "./src/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./src/index.d.ts"
+      },
+      "./result": {
+        "types": "./src/result.d.ts"
+      },
+      "./primitives": {
+        "types": "./src/primitives.d.ts"
+      },
+      "./transaction": {
+        "types": "./src/transaction.d.ts"
+      },
+      "./security": {
+        "types": "./src/security.d.ts"
+      },
+      "./errors": {
+        "types": "./src/errors.d.ts"
+      },
+      "./crypto": {
+        "types": "./src/crypto.d.ts"
+      },
+      "./material": {
+        "types": "./src/material.d.ts"
+      },
+      "./method": {
+        "types": "./src/method.d.ts"
+      },
+      "./views": {
+        "types": "./src/views.d.ts"
+      },
+      "./core": {
+        "types": "./src/core.d.ts"
+      },
+      "./store": {
+        "types": "./src/store.d.ts"
+      },
+      "./token": {
+        "types": "./src/token.d.ts"
+      },
+      "./carrier": {
+        "types": "./src/carrier.d.ts"
+      },
+      "./delivery": {
+        "types": "./src/delivery.d.ts"
+      },
+      "./effects": {
+        "types": "./src/effects.d.ts"
+      },
+      "./observability": {
+        "types": "./src/observability.d.ts"
+      },
+      "./guard": {
+        "types": "./src/guard.d.ts"
+      },
+      "./extensions": {
+        "types": "./src/extensions.d.ts"
+      },
+      "./package.json": "./package.json"
+    }
+  },
+  "compatibility": {
+    "engines": null,
+    "peerDependencies": null,
+    "peerDependenciesMeta": null,
+    "typesVersions": null,
+    "sideEffects": false
+  },
+  "declarations": [
+    {
+      "path": "src/carrier.d.ts",
+      "sha256": "2e769af70aa329368e8de9901f01bfcc8c9857efb2fdc8028df0aafdb189aca0"
+    },
+    {
+      "path": "src/core.d.ts",
+      "sha256": "3008c9a961de729c9c0a60697ccc591e25aafa64492bfa5fb0a99dc8870392dd"
+    },
+    {
+      "path": "src/crypto.d.ts",
+      "sha256": "5c120e24e5bff81398a6550dca1fc4e52311d31e1a7966725700b3e730ff9b19"
+    },
+    {
+      "path": "src/delivery.d.ts",
+      "sha256": "4bb4efdcb0d67857e19a4cedcc8dfd9d45438c37f15890ec255ee2ce0052553b"
+    },
+    {
+      "path": "src/effects.d.ts",
+      "sha256": "4e47fab967ea9ad6435c8ce0057cf66efaf92a8042742799302ce28d5df3384a"
+    },
+    {
+      "path": "src/errors.d.ts",
+      "sha256": "0134c73602e5812bae293f659a3e8e582bee2efa1f249956ea05b67eb96c9a4c"
+    },
+    {
+      "path": "src/extensions.d.ts",
+      "sha256": "584da2fcf527f089688991fb228e1e66406de685b9102f50a424450298e773ee"
+    },
+    {
+      "path": "src/guard.d.ts",
+      "sha256": "66d98d3bd9a46f276ee643e3957c72324943e4c24f18f07369ac97466c392ee7"
+    },
+    {
+      "path": "src/index.d.ts",
+      "sha256": "eb99684ff585f7803d1caea36c2cc8985733ed4796e4289b6f01ee0f19dbe85a"
+    },
+    {
+      "path": "src/material.d.ts",
+      "sha256": "cf1fdac04a15a01f66d13ac9e22ace8f5b7d737aed871bb38c620f55ac1c3922"
+    },
+    {
+      "path": "src/method.d.ts",
+      "sha256": "4ff8c3c7cd80c7695e32bebab20cf5c854712eb7cd434fb8f7178677842586ee"
+    },
+    {
+      "path": "src/observability.d.ts",
+      "sha256": "3a5406070265983be3ec5b033bf336da7508a845f88fc3e92de3f34aa1b56d2c"
+    },
+    {
+      "path": "src/outbox.d.ts",
+      "sha256": "8aa44329c64d4a47dd47dcb765df2e55b10b5f386286ba87ff7af4272b7862f0"
+    },
+    {
+      "path": "src/primitives.d.ts",
+      "sha256": "3c1a3ec0ab4177aecae0c53263dffe7e61dd9d5d6755d94342a81bb47090e536"
+    },
+    {
+      "path": "src/result.d.ts",
+      "sha256": "620a90ae805d8eb206d0a7ab301b9b6fc9838fbd459c14c19a835d6696344d03"
+    },
+    {
+      "path": "src/security.d.ts",
+      "sha256": "032f2b37022dc7eceef0fd31359fa3c8589a633ee22df96891667659779b2879"
+    },
+    {
+      "path": "src/store.d.ts",
+      "sha256": "74664168f68d4b5cfca464d5469956025a2545942f174a9886f98ebce7bc5d01"
+    },
+    {
+      "path": "src/token.d.ts",
+      "sha256": "0318265a27cfbb732444983af345a01754e793bd6c37d0810a9e756ccb7e3b11"
+    },
+    {
+      "path": "src/transaction.d.ts",
+      "sha256": "95c16ca642199ff27e38a0ab5435789e12ee5c5f551ba0db87e290823b2696b1"
+    },
+    {
+      "path": "src/views.d.ts",
+      "sha256": "4c203622bcedc1180ed5054ddf9b51b775eb1fa1c0b9dc119167d6528cd2441f"
+    }
+  ]
+}

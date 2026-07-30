@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { appendFile, readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
@@ -7,6 +8,7 @@ import { isExactIntegrity, isExactVersion } from './release-manifest.js'
 const execFileAsync = promisify(execFile)
 const mode = process.env.AUTHMODULES_PUBLICATION_MODE
 const packageDirectory = process.env.AUTHMODULES_PACKAGE_DIRECTORY
+const packageTarball = process.env.AUTHMODULES_PACKAGE_TARBALL
 const expectedIntegrity = process.env.AUTHMODULES_EXPECTED_INTEGRITY
 const outputPath = process.env.GITHUB_OUTPUT
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm'
@@ -17,6 +19,9 @@ if (mode !== 'resolve' && mode !== 'verify') {
 }
 if (typeof packageDirectory !== 'string') {
   throw new Error('AUTHMODULES_PACKAGE_DIRECTORY is required')
+}
+if (typeof packageTarball !== 'string' || packageTarball.length === 0) {
+  throw new Error('AUTHMODULES_PACKAGE_TARBALL is required')
 }
 if (!isExactIntegrity(expectedIntegrity)) {
   throw new Error('AUTHMODULES_EXPECTED_INTEGRITY must be an exact SHA-512 digest')
@@ -35,7 +40,7 @@ if (
   throw new Error('Package name and exact version are required')
 }
 
-const localIntegrity = await resolveLocalIntegrity(sourceRoot)
+const localIntegrity = await resolveLocalIntegrity(path.resolve(packageTarball))
 if (localIntegrity !== expectedIntegrity) {
   throw new Error(`${packageManifest.name}@${packageManifest.version} does not match the release plan integrity`)
 }
@@ -69,17 +74,10 @@ if (mode === 'resolve') {
   console.log(`${packageSpec} registry integrity verified`)
 }
 
-async function resolveLocalIntegrity(cwd) {
-  const { stdout } = await execFileAsync(
-    npm,
-    ['pack', '--dry-run', '--json', '--ignore-scripts'],
-    { cwd, encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 }
-  )
-  const result = JSON.parse(stdout)
-  const integrity = result?.[0]?.integrity
-  if (!isExactIntegrity(integrity)) {
-    throw new Error('npm pack did not produce one valid SHA-512 integrity')
-  }
+async function resolveLocalIntegrity(tarballPath) {
+  const digest = createHash('sha512').update(await readFile(tarballPath)).digest('base64')
+  const integrity = `sha512-${digest}`
+  if (!isExactIntegrity(integrity)) throw new Error('Package tarball has an invalid SHA-512 digest')
   return integrity
 }
 

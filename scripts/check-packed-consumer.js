@@ -8,8 +8,8 @@ import { isExactIntegrity, isExactVersion, packageRepositories } from './release
 const repositories = packageRepositories
 const runtimeRepositories = repositories.filter((repository) => repository !== 'contracts')
 
-const workspaceRoot = fileURLToPath(new URL('../..', import.meta.url))
 const projectRoot = fileURLToPath(new URL('..', import.meta.url))
+const packagesRoot = path.join(projectRoot, 'packages')
 const buildToolPath = path.join(projectRoot, 'node_modules', '.bin')
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm'
 const publishedVersions = parsePublishedVersions(process.env.AUTHMODULES_PUBLISHED_VERSIONS)
@@ -33,7 +33,7 @@ try {
   } else {
     const tarballs = []
     for (const repository of repositories) {
-      const repositoryPath = path.join(workspaceRoot, repository)
+      const repositoryPath = path.join(packagesRoot, repository)
       await run(npm, ['run', 'build', '--ignore-scripts'], repositoryPath)
       const before = new Set(await readdir(tarballRoot))
       await run(npm, [

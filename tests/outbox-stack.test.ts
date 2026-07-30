@@ -1,10 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import type { DeliverySendInput } from '@authmodules/contracts/delivery'
-import { createNodeSecretSealer, rawSecret } from '../../crypto-node/src/index.ts'
-import { createOutboxEffectsDispatcher, outboxSecretPurpose } from '../../effects-outbox/src/index.ts'
-import { createOutboxWorker } from '../../outbox-worker/src/index.ts'
-import { createMemoryOutboxStore } from '../../testkit/src/index.ts'
+import { createNodeSecretSealer, rawSecret } from '../packages/crypto-node/src/index.ts'
+import { createOutboxEffectsDispatcher, outboxSecretPurpose } from '../packages/effects-outbox/src/index.ts'
+import { createOutboxWorker } from '../packages/outbox-worker/src/index.ts'
+import { createMemoryOutboxStore } from '../packages/testkit/src/index.ts'
 
 test('official outbox dispatcher output is accepted and delivered by the official worker', async () => {
   const now = new Date('2026-01-01T00:00:00.000Z')

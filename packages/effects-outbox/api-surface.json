@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "package": "@authmodules/effects-outbox",
+  "entrypoints": {
+    "type": "module",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js"
+      },
+      "./package.json": "./package.json"
+    }
+  },
+  "compatibility": {
+    "engines": {
+      "node": ">=24"
+    },
+    "peerDependencies": {
+      "@authmodules/contracts": "^0.1.0"
+    },
+    "peerDependenciesMeta": null,
+    "typesVersions": null,
+    "sideEffects": false
+  },
+  "declarations": [
+    {
+      "path": "dist/delivery/outbox-secret-purpose.d.ts",
+      "sha256": "44bff315b7d82b724d86944ce7f52ee619f60ac6179b6a3a3cab028e5de656b4"
+    },
+    {
+      "path": "dist/delivery/persist.d.ts",
+      "sha256": "c121feb5bf072a323829b1452038ea51c467b4c3cce3f1c7a31d0fdd73a22fea"
+    },
+    {
+      "path": "dist/dispatcher/create-outbox-effects-dispatcher.d.ts",
+      "sha256": "3f57900df4e2ab25acfdef289d88d97d785e165f4bf02959289143b1817e853b"
+    },
+    {
+      "path": "dist/dispatcher/types.d.ts",
+      "sha256": "42b9aa91dee9e7de9301a4a009d27c9b950d683e81b0e2ffa07dba4fe47d6fd9"
+    },
+    {
+      "path": "dist/index.d.ts",
+      "sha256": "a47221e0a75f60d12b77afb67a93e5bc298cd6cc80cbaf403d4e41d0182dcdee"
+    }
+  ]
+}

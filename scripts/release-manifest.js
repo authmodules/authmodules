@@ -24,7 +24,6 @@ const exactVersion = new RegExp(
   + `(?:-${prereleaseIdentifier}(?:\\.${prereleaseIdentifier})*)?`
   + '(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$'
 )
-const exactRevision = /^[0-9a-f]{40}$/
 const exactIntegrity = /^sha512-[0-9A-Za-z+/]{85}[AQgw]==$/
 
 export function isExactVersion(value) {
@@ -35,83 +34,69 @@ export function isExactIntegrity(value) {
   return typeof value === 'string' && exactIntegrity.test(value)
 }
 
-export function parseReleaseManifest(value, expectedRelease) {
-  assertPlainObject(value, 'release manifest')
-  assertExactKeys(value, ['schemaVersion', 'release', 'packages'], 'release manifest')
-  assert(value.schemaVersion === 2, 'release manifest schemaVersion must be 2')
-  assert(isExactVersion(value.release), 'release manifest release must be an exact version')
-  if (expectedRelease !== undefined) {
-    assert(value.release === expectedRelease, `release manifest must describe ${expectedRelease}`)
+export function assertReleasePleaseManifest(
+  value,
+  { allowEmpty = false, label = 'Release Please manifest' } = {}
+) {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`${label} must be an object`)
   }
 
-  assertPlainObject(value.packages, 'release manifest packages')
-  assertExactKeys(value.packages, packageRepositories, 'release manifest packages')
+  const prototype = Object.getPrototypeOf(value)
+  if (prototype !== Object.prototype && prototype !== null) {
+    throw new Error(`${label} must be a plain data object`)
+  }
 
-  const packages = {}
-  for (const repository of packageRepositories) {
-    const entry = value.packages[repository]
-    assertPlainObject(entry, `${repository} release entry`)
-    assertExactKeys(entry, ['repository', 'revision', 'tag', 'version', 'integrity'], `${repository} release entry`)
-    assert(entry.repository === `authmodules/${repository}`, `${repository} repository must be authmodules/${repository}`)
-    assert(
-      typeof entry.revision === 'string'
-        && exactRevision.test(entry.revision)
-        && !/^0{40}$/.test(entry.revision),
-      `${repository} revision must be a full lowercase commit SHA`
+  const expectedPaths = packageRepositories.map((name) => `packages/${name}`)
+  const descriptors = Object.getOwnPropertyDescriptors(value)
+  const ownKeys = Reflect.ownKeys(descriptors)
+  if (ownKeys.some((key) => typeof key === 'symbol')) {
+    throw new Error(`${label} must contain only string package paths`)
+  }
+  const actualPaths = ownKeys
+  for (const packagePath of actualPaths) {
+    const descriptor = descriptors[packagePath]
+    if (
+      !descriptor.enumerable
+      || !Object.hasOwn(descriptor, 'value')
+    ) {
+      throw new Error(`${label} must contain only enumerable data properties`)
+    }
+  }
+  if (allowEmpty && actualPaths.length === 0) return
+
+  const expected = new Set(expectedPaths)
+  const missing = expectedPaths.filter((packagePath) => !Object.hasOwn(value, packagePath))
+  const unknown = actualPaths.filter((packagePath) => !expected.has(packagePath))
+  if (missing.length > 0 || unknown.length > 0) {
+    throw new Error(
+      `${label} must contain exactly all package paths`
+      + `${missing.length === 0 ? '' : `; missing: ${missing.join(', ')}`}`
+      + `${unknown.length === 0 ? '' : `; unknown: ${unknown.join(', ')}`}`
     )
-    assert(isExactVersion(entry.version), `${repository} version must be exact`)
-    assert(entry.tag === `v${entry.version}`, `${repository} tag must match its package version`)
-    assert(isExactIntegrity(entry.integrity), `${repository} integrity must be an exact SHA-512 digest`)
-    packages[repository] = Object.freeze({ ...entry })
   }
 
-  return Object.freeze({
-    schemaVersion: 2,
-    release: value.release,
-    packages: Object.freeze(packages)
+  for (const packagePath of expectedPaths) {
+    if (!isExactVersion(descriptors[packagePath].value)) {
+      throw new Error(`${label} has an invalid version for ${packagePath}`)
+    }
+  }
+}
+
+export function shouldPublishReleaseManifest(previousManifest, currentManifest) {
+  assertReleasePleaseManifest(previousManifest, {
+    allowEmpty: true,
+    label: 'Previous release manifest'
   })
-}
+  assertReleasePleaseManifest(currentManifest, {
+    allowEmpty: true,
+    label: 'Current release manifest'
+  })
 
-export function publishedVersions(manifest) {
-  return Object.fromEntries(packageRepositories.map((repository) => [
-    repository,
-    manifest.packages[repository].version
-  ]))
-}
-
-export function publishedIntegrities(manifest) {
-  return Object.fromEntries(packageRepositories.map((repository) => [
-    repository,
-    manifest.packages[repository].integrity
-  ]))
-}
-
-export function workflowOutputs(manifest) {
-  const outputs = {
-    published_versions: JSON.stringify(publishedVersions(manifest)),
-    published_integrities: JSON.stringify(publishedIntegrities(manifest))
+  const previousIsEmpty = Reflect.ownKeys(previousManifest).length === 0
+  const currentIsEmpty = Reflect.ownKeys(currentManifest).length === 0
+  if (currentIsEmpty && !previousIsEmpty) {
+    throw new Error('A complete release manifest cannot transition back to bootstrap state')
   }
-  for (const repository of packageRepositories) {
-    outputs[`${repository.replaceAll('-', '_')}_ref`] = `refs/tags/${manifest.packages[repository].tag}`
-  }
-  return outputs
-}
-
-function assertExactKeys(value, expected, label) {
-  const actual = Object.keys(value)
-  assert(
-    actual.length === expected.length && actual.every((key, index) => key === expected[index]),
-    `${label} keys must be exactly: ${expected.join(', ')}`
-  )
-}
-
-function assertPlainObject(value, label) {
-  assert(
-    value !== null && typeof value === 'object' && !Array.isArray(value),
-    `${label} must be an object`
-  )
-}
-
-function assert(condition, message) {
-  if (!condition) throw new Error(message)
+  return !currentIsEmpty
 }

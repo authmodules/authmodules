@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "package": "@authmodules/method-password",
+  "entrypoints": {
+    "type": "module",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js"
+      },
+      "./package.json": "./package.json"
+    }
+  },
+  "compatibility": {
+    "engines": {
+      "node": ">=24"
+    },
+    "peerDependencies": {
+      "@authmodules/contracts": "^0.1.0"
+    },
+    "peerDependenciesMeta": null,
+    "typesVersions": null,
+    "sideEffects": false
+  },
+  "declarations": [
+    {
+      "path": "dist/index.d.ts",
+      "sha256": "788c3ec32e9d64b36c3a52ed6f7adbd19f64e78a0eb7efd5258b03d634ebeee3"
+    },
+    {
+      "path": "dist/method/create-password-method.d.ts",
+      "sha256": "acef19902824c4402466e81476eb915cded40323bdc8bb2fa306ff3f568d4222"
+    },
+    {
+      "path": "dist/method/types.d.ts",
+      "sha256": "46bb86973ab352963f465884b4af377d163e15b375f722011b06fc00eaf7659a"
+    },
+    {
+      "path": "dist/subject/normalize-password-subject.d.ts",
+      "sha256": "969a4971a1ba2939ab42d1420ab3ecd687ef1fce2e8b4e30c730498743b8ce31"
+    }
+  ]
+}

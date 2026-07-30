@@ -1,30 +1,51 @@
 import { access, readFile, readdir } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import ts from 'typescript'
+import { parse } from '@babel/parser'
 import { packageRepositories } from './release-manifest.js'
 
 const requiredRepositories = packageRepositories
 
-const root = new URL('../..', import.meta.url)
+const root = new URL('../', import.meta.url)
 const rootPath = fileURLToPath(root)
+const rootManifest = JSON.parse(await readFile(new URL('package.json', root), 'utf8'))
+const expectedWorkspaces = requiredRepositories.map((repository) => `packages/${repository}`)
+if (JSON.stringify(rootManifest.workspaces) !== JSON.stringify(expectedWorkspaces)) {
+  throw new Error('Root workspaces must list every package exactly once in the canonical order')
+}
 
+await access(new URL('package-lock.json', root))
 await assertNoWorkspaceArtifacts(root)
 
 for (const repository of requiredRepositories) {
-  await access(new URL(`${repository}/.git`, root))
-  await access(new URL(`${repository}/tests`, root))
-  const manifestUrl = new URL(`${repository}/package.json`, root)
+  const packageUrl = new URL(`packages/${repository}/`, root)
+  await access(new URL('tests/', packageUrl))
+  const manifestUrl = new URL('package.json', packageUrl)
   await access(manifestUrl)
   const manifest = JSON.parse(await readFile(manifestUrl, 'utf8'))
+  if (manifest.name !== `@authmodules/${repository}`) {
+    throw new Error(`${repository} must retain its public package name`)
+  }
   if (!manifest.scripts?.test?.includes('tests')) {
     throw new Error(`${repository} must run tests from tests/`)
   }
   if (!manifest.scripts.test.includes('.ts')) {
     throw new Error(`${repository} must run TypeScript tests from tests/`)
   }
-  if (!manifest.repository?.url?.includes(`authmodules/${repository}.git`)) {
-    throw new Error(`${repository} must declare its GitHub repository metadata`)
+  if (
+    manifest.repository?.url !== 'git+https://github.com/authmodules/authmodules.git'
+    || manifest.repository?.directory !== `packages/${repository}`
+  ) {
+    throw new Error(`${repository} must point to its monorepo directory`)
+  }
+  if (manifest.bugs?.url !== 'https://github.com/authmodules/authmodules/issues') {
+    throw new Error(`${repository} must use the monorepo issue tracker`)
+  }
+  if (
+    manifest.homepage
+    !== `https://github.com/authmodules/authmodules/tree/main/packages/${repository}#readme`
+  ) {
+    throw new Error(`${repository} must use its monorepo package homepage`)
   }
   if (manifest.publishConfig?.registry !== 'https://npm.pkg.github.com') {
     throw new Error(`${repository} must declare GitHub Packages as its publish registry`)
@@ -32,6 +53,14 @@ for (const repository of requiredRepositories) {
   if (manifest.scripts?.prepack !== 'npm run build') {
     throw new Error(`${repository} must build before pack`)
   }
+  if (
+    manifest.scripts?.['api:check'] !== 'node ../../scripts/check-package-api.js'
+    || manifest.scripts?.['api:update']
+      !== 'npm run build && node ../../scripts/check-package-api.js --write'
+  ) {
+    throw new Error(`${repository} must use the root public API checker`)
+  }
+  await assertNoNestedRepositoryArtifacts(packageUrl)
   await assertNoAnyTypes(repository)
   if (repository !== 'contracts') {
     await assertRuntimeTypeScriptPackage(repository, manifest)
@@ -39,7 +68,7 @@ for (const repository of requiredRepositories) {
 }
 
 async function assertNoAnyTypes(repository) {
-  const sourceRoot = new URL(`${repository}/src/`, root)
+  const sourceRoot = new URL(`packages/${repository}/src/`, root)
   const files = await collectTypeScriptFiles(sourceRoot)
 
   for (const fileUrl of files) {
@@ -48,24 +77,19 @@ async function assertNoAnyTypes(repository) {
       throw new Error(`${path.relative(rootPath, filePath)} must be generated from TypeScript source`)
     }
     const sourceText = await readFile(fileUrl, 'utf8')
-    const sourceFile = ts.createSourceFile(filePath, sourceText, ts.ScriptTarget.Latest, true)
-    assertImportsFirst(sourceFile, fileUrl)
-    let containsAny = false
-    const visit = (node) => {
-      if (node.kind === ts.SyntaxKind.AnyKeyword) containsAny = true
-      if (!containsAny) ts.forEachChild(node, visit)
-    }
-    visit(sourceFile)
-    if (containsAny) {
+    const program = parseTypeScript(sourceText, filePath)
+    assertImportsFirst(program.body, fileUrl)
+    if (containsNodeType(program, 'TSAnyKeyword')) {
       throw new Error(`${path.relative(rootPath, filePath)} must not use the any type`)
     }
   }
 }
 
-function assertImportsFirst(sourceFile, fileUrl) {
+function assertImportsFirst(statements, fileUrl) {
   let sourceDeclarationSeen = false
-  for (const statement of sourceFile.statements) {
-    const isImport = ts.isImportDeclaration(statement) || ts.isImportEqualsDeclaration(statement)
+  for (const statement of statements) {
+    const isImport = statement.type === 'ImportDeclaration'
+      || statement.type === 'TSImportEqualsDeclaration'
     if (isImport && sourceDeclarationSeen) {
       throw new Error(`${path.relative(rootPath, fileURLToPath(fileUrl))} must keep imports before declarations`)
     }
@@ -124,27 +148,20 @@ function isForbiddenWorkspaceArtifact(name) {
 }
 
 async function assertRuntimeTypeScriptPackage(repository, manifest) {
-  const entrypointUrl = new URL(`${repository}/src/index.ts`, root)
+  const entrypointUrl = new URL(`packages/${repository}/src/index.ts`, root)
   await access(entrypointUrl)
-  await access(new URL(`${repository}/.github/workflows/check.yml`, root))
 
   const entrypoint = await readFile(entrypointUrl, 'utf8')
-  const entrypointSource = ts.createSourceFile(
-    fileURLToPath(entrypointUrl),
-    entrypoint,
-    ts.ScriptTarget.Latest,
-    true
-  )
-  const explicitReexports = entrypointSource.statements.length > 0
-    && entrypointSource.statements.every((statement) => (
-      ts.isExportDeclaration(statement)
-      && statement.exportClause !== undefined
-      && ts.isNamedExports(statement.exportClause)
-      && statement.exportClause.elements.length > 0
-      && statement.moduleSpecifier !== undefined
-      && ts.isStringLiteral(statement.moduleSpecifier)
-      && statement.moduleSpecifier.text.startsWith('./')
-      && statement.moduleSpecifier.text.endsWith('.ts')
+  const entrypointProgram = parseTypeScript(entrypoint, fileURLToPath(entrypointUrl))
+  const explicitReexports = entrypointProgram.body.length > 0
+    && entrypointProgram.body.every((statement) => (
+      statement.type === 'ExportNamedDeclaration'
+      && statement.declaration === null
+      && statement.specifiers.length > 0
+      && statement.specifiers.every((specifier) => specifier.type === 'ExportSpecifier')
+      && statement.source?.type === 'StringLiteral'
+      && statement.source.value.startsWith('./')
+      && statement.source.value.endsWith('.ts')
     ))
   if (!explicitReexports) {
     throw new Error(`${repository} src/index.ts must contain only explicit TypeScript re-exports`)
@@ -175,7 +192,9 @@ async function assertRuntimeTypeScriptPackage(repository, manifest) {
     throw new Error(`${repository} must smoke test dist/index.js`)
   }
 
-  const tsconfig = JSON.parse(await readFile(new URL(`${repository}/tsconfig.json`, root), 'utf8'))
+  const tsconfig = JSON.parse(
+    await readFile(new URL(`packages/${repository}/tsconfig.json`, root), 'utf8')
+  )
   if (tsconfig.compilerOptions?.strict !== true || 'noCheck' in (tsconfig.compilerOptions ?? {})) {
     throw new Error(`${repository} must use strict TypeScript without noCheck`)
   }
@@ -185,4 +204,55 @@ async function assertRuntimeTypeScriptPackage(repository, manifest) {
   if (tsconfig.compilerOptions?.rewriteRelativeImportExtensions !== true) {
     throw new Error(`${repository} must rewrite source TypeScript specifiers for ESM output`)
   }
+  if (tsconfig.compilerOptions?.rootDir !== './src') {
+    throw new Error(`${repository} must declare the TypeScript 7 source root explicitly`)
+  }
+}
+
+async function assertNoNestedRepositoryArtifacts(packageUrl) {
+  const forbidden = [
+    '.git',
+    '.github',
+    'package-lock.json',
+    'scripts/check-package-api.js'
+  ]
+  for (const relativePath of forbidden) {
+    try {
+      await access(new URL(relativePath, packageUrl))
+      throw new Error(
+        `${path.relative(rootPath, fileURLToPath(new URL(relativePath, packageUrl)))} `
+        + 'must not exist in a workspace package'
+      )
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error
+    }
+  }
+}
+
+function parseTypeScript(sourceText, filePath) {
+  return parse(sourceText, {
+    sourceFilename: filePath,
+    sourceType: 'module',
+    plugins: [[
+      'typescript',
+      { dts: filePath.endsWith('.d.ts') }
+    ]]
+  }).program
+}
+
+function containsNodeType(rootNode, expectedType) {
+  const queue = [rootNode]
+  while (queue.length > 0) {
+    const value = queue.pop()
+    if (value === null || typeof value !== 'object') continue
+    if (value.type === expectedType) return true
+    for (const child of Object.values(value)) {
+      if (Array.isArray(child)) {
+        queue.push(...child)
+      } else if (child !== null && typeof child === 'object') {
+        queue.push(child)
+      }
+    }
+  }
+  return false
 }

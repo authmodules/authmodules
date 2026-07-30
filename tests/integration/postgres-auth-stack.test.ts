@@ -1,26 +1,26 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { Pool } from 'pg'
-import { createAuth } from '../../../core/src/index.ts'
+import { createAuth } from '../../packages/core/src/index.ts'
 import {
   createNodeCryptoProvider,
   createNodePasswordHasher,
   createNodeSecretSealer,
   rawSecret
-} from '../../../crypto-node/src/index.ts'
-import { createSmtpDeliveryTransport } from '../../../delivery-email-smtp/src/index.ts'
-import { createOutboxEffectsDispatcher } from '../../../effects-outbox/src/index.ts'
-import { createOtpMethod } from '../../../method-otp/src/index.ts'
-import { createPasswordMethod } from '../../../method-password/src/index.ts'
-import { createOutboxWorker } from '../../../outbox-worker/src/index.ts'
-import { createPostgresAuthOutboxStores, installPostgresSchema } from '../../../store-postgres/src/index.ts'
+} from '../../packages/crypto-node/src/index.ts'
+import { createSmtpDeliveryTransport } from '../../packages/delivery-email-smtp/src/index.ts'
+import { createOutboxEffectsDispatcher } from '../../packages/effects-outbox/src/index.ts'
+import { createOtpMethod } from '../../packages/method-otp/src/index.ts'
+import { createPasswordMethod } from '../../packages/method-password/src/index.ts'
+import { createOutboxWorker } from '../../packages/outbox-worker/src/index.ts'
+import { createPostgresAuthOutboxStores, installPostgresSchema } from '../../packages/store-postgres/src/index.ts'
 import {
   complianceSuites,
   deterministicIdGenerator,
   fixedClock,
   runComplianceSuite
-} from '../../../testkit/src/index.ts'
-import { createOpaqueTokenFormat } from '../../../token-opaque/src/index.ts'
+} from '../../packages/testkit/src/index.ts'
+import { createOpaqueTokenFormat } from '../../packages/token-opaque/src/index.ts'
 
 const databaseUrl = process.env.AUTHMODULES_POSTGRES_URL
 

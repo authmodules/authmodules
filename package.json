@@ -1,12 +1,29 @@
 {
   "name": "authmodules",
-  "version": "0.1.1",
+  "version": "0.1.0",
   "private": true,
-  "description": "Architecture, specifications, integration tests, and release coordination for the AuthModules ecosystem.",
+  "description": "Development monorepo for the AuthModules package ecosystem.",
   "type": "module",
   "license": "MIT",
+  "workspaces": [
+    "packages/contracts",
+    "packages/core",
+    "packages/testkit",
+    "packages/method-password",
+    "packages/method-otp",
+    "packages/store-postgres",
+    "packages/crypto-node",
+    "packages/token-opaque",
+    "packages/carrier-cookie",
+    "packages/delivery-email-smtp",
+    "packages/effects-sync-delivery",
+    "packages/framework-express",
+    "packages/effects-outbox",
+    "packages/outbox-worker",
+    "packages/guard-memory"
+  ],
   "engines": {
-    "node": ">=24"
+    "node": ">=24.11.0"
   },
   "packageManager": "npm@11.16.0",
   "devEngines": {
@@ -17,21 +34,23 @@
     }
   },
   "scripts": {
-    "check": "npm run lint && npm run spec:check && npm run spec:sync && npm run ecosystem:check && npm run release:check && npm run boundaries:check && npm run test:stack && npm run test:integration && npm run coverage:check && npm run packed:check",
+    "check": "npm run lint && npm run spec:check && npm run spec:sync && npm run ecosystem:check && npm run boundaries:check && npm run packages:check && npm run test:stack && npm run test:integration && npm run test:postgres && npm run coverage:check && npm run packed:check",
     "boundaries:check": "node scripts/check-package-boundaries.js",
     "ecosystem:check": "node scripts/check-ecosystem-repos.js",
-    "release:prepare": "node scripts/write-release-manifest.js",
-    "release:check": "node scripts/check-release-manifests.js",
+    "packages:check": "npm run check --workspaces --if-present",
     "coverage:check": "node scripts/check-coverage.js",
     "packed:check": "node scripts/check-packed-consumer.js",
     "lint": "node scripts/lint-workspace.js",
     "test:integration": "node --test tests/integration/*.test.ts",
+    "test:postgres": "npm run test:integration --workspace @authmodules/store-postgres",
     "test:stack": "node --test tests/*.test.ts",
     "spec:check": "tsc -p tsconfig.spec.json",
     "spec:sync": "node scripts/check-contract-spec-sync.js"
   },
   "devDependencies": {
+    "@babel/parser": "^8.0.4",
     "pg": "^8.22.0",
-    "typescript": "^5.9.0"
+    "release-please": "17.6.1",
+    "typescript": "^7.0.2"
   }
 }

@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "package": "@authmodules/outbox-worker",
+  "entrypoints": {
+    "type": "module",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js"
+      },
+      "./package.json": "./package.json"
+    }
+  },
+  "compatibility": {
+    "engines": {
+      "node": ">=24"
+    },
+    "peerDependencies": {
+      "@authmodules/contracts": "^0.1.0"
+    },
+    "peerDependenciesMeta": null,
+    "typesVersions": null,
+    "sideEffects": false
+  },
+  "declarations": [
+    {
+      "path": "dist/index.d.ts",
+      "sha256": "2a071410ce1a4fe23bf7582c2a6180fab2f2a62e918fe5d368d55c924228c13b"
+    },
+    {
+      "path": "dist/worker/create-outbox-worker.d.ts",
+      "sha256": "02f7e44d3b4ac5ef1d539cbfd2f8ea0014a11045e774a36b05f3ead754ebf78e"
+    },
+    {
+      "path": "dist/worker/types.d.ts",
+      "sha256": "2f4291150f24b6e3266e9d1b66cc74ca849dca3e833d7ab2eb3f9ddc7f5e871e"
+    }
+  ]
+}

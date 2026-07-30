@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "package": "@authmodules/carrier-cookie",
+  "entrypoints": {
+    "type": "module",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js"
+      },
+      "./package.json": "./package.json"
+    }
+  },
+  "compatibility": {
+    "engines": {
+      "node": ">=24"
+    },
+    "peerDependencies": {
+      "@authmodules/contracts": "^0.1.0"
+    },
+    "peerDependenciesMeta": null,
+    "typesVersions": null,
+    "sideEffects": false
+  },
+  "declarations": [
+    {
+      "path": "dist/carrier/create-cookie-token-carrier.d.ts",
+      "sha256": "1f78dc670c4a43341b006c5874e98a6693bdfbb7d86a132a9f7b9a7c4cbe3bb5"
+    },
+    {
+      "path": "dist/carrier/types.d.ts",
+      "sha256": "63d880006c76e30cfa3aeeec7199bfe014b04f9abaf78097adefcebc4dd00cc5"
+    },
+    {
+      "path": "dist/index.d.ts",
+      "sha256": "7d93cd19c5c6ccbdb0c8622eac6e5256f3b065e5cb1a6ae5731f0d019c90d6ee"
+    }
+  ]
+}

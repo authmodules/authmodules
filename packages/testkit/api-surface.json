@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 1,
+  "package": "@authmodules/testkit",
+  "entrypoints": {
+    "type": "module",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js"
+      },
+      "./package.json": "./package.json"
+    }
+  },
+  "compatibility": {
+    "engines": {
+      "node": ">=24"
+    },
+    "peerDependencies": {
+      "@authmodules/contracts": "^0.1.0"
+    },
+    "peerDependenciesMeta": null,
+    "typesVersions": null,
+    "sideEffects": false
+  },
+  "declarations": [
+    {
+      "path": "dist/assertions/security.d.ts",
+      "sha256": "044ad9421ede7dcd15e3b2408865662c8a1029fe8282ff91f6aeb32802d97e3e"
+    },
+    {
+      "path": "dist/clock/fixed-clock.d.ts",
+      "sha256": "b4b425be496aeab782fc5442a935a40b818fe88b8612da4c94f708082ccb8f78"
+    },
+    {
+      "path": "dist/compliance/catalog.d.ts",
+      "sha256": "4b7ceeedea6dfd6d9b36128d448b446a77ef8ffa72c2b69a45cbd31f37002b2c"
+    },
+    {
+      "path": "dist/compliance/run.d.ts",
+      "sha256": "bd951231a4fbc9ffc13466acf6216e0aaa1d8e76fe70aa427d1aa6dafefd07a7"
+    },
+    {
+      "path": "dist/compliance/types.d.ts",
+      "sha256": "cee1c8af293d2a1ef9ef53a4b0464826606f924a8dad0b4372fda583f9fafe7d"
+    },
+    {
+      "path": "dist/ids/deterministic-id-generator.d.ts",
+      "sha256": "ccec17baeba4025a1f3fd693148ee2bfd2dc22c313c3f1a2208db1ca3d29eecc"
+    },
+    {
+      "path": "dist/index.d.ts",
+      "sha256": "380a4bfc67cded812d6cc1ba54625d68008641e5ea9eb3bd88fdeda8b87cc179"
+    },
+    {
+      "path": "dist/secrets/factory.d.ts",
+      "sha256": "6275b81c902900ec281def70128d1526eff043e23aedee8f79a521e5f173d9cc"
+    },
+    {
+      "path": "dist/stores/memory-auth-outbox-stores.d.ts",
+      "sha256": "899b372dff21e1991a3d5b6020808e3d35485dd731b8ddeb2f4cf1cd9bc7c597"
+    },
+    {
+      "path": "dist/stores/memory-auth-store.d.ts",
+      "sha256": "0287f68cc5b1f68c0078a298eb9779d8501ede6aea67941db6ddf711f4cace78"
+    },
+    {
+      "path": "dist/stores/memory-outbox-store.d.ts",
+      "sha256": "da528bc9832836b066607d8198124a1cd4f992e5b37f311a2688d9596bc0f09f"
+    },
+    {
+      "path": "dist/stores/state.d.ts",
+      "sha256": "264cf0bd8a2c273a7b86ab1c386a5a927ab569d408c3ed5bc5c0b760a94e6370"
+    },
+    {
+      "path": "dist/views/records.d.ts",
+      "sha256": "9d1e0e3faf84441598890a7a211778d9352e0bf3f1f361790c6879c8dd4705b5"
+    }
+  ]
+}

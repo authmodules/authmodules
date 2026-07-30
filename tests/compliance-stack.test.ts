@@ -1,18 +1,18 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import type { DeliverySendInput } from '@authmodules/contracts/delivery'
-import { createCookieTokenCarrier } from '../../carrier-cookie/src/index.ts'
-import { createAuth } from '../../core/src/index.ts'
+import { createCookieTokenCarrier } from '../packages/carrier-cookie/src/index.ts'
+import { createAuth } from '../packages/core/src/index.ts'
 import {
   createNodeCryptoProvider,
   createNodeSecretSealer,
   rawSecret
-} from '../../crypto-node/src/index.ts'
-import { createSmtpDeliveryTransport } from '../../delivery-email-smtp/src/index.ts'
-import { createOutboxEffectsDispatcher } from '../../effects-outbox/src/index.ts'
-import { createMemoryAttemptGuard } from '../../guard-memory/src/index.ts'
-import { createPasswordMethod } from '../../method-password/src/index.ts'
-import { createOutboxWorker } from '../../outbox-worker/src/index.ts'
+} from '../packages/crypto-node/src/index.ts'
+import { createSmtpDeliveryTransport } from '../packages/delivery-email-smtp/src/index.ts'
+import { createOutboxEffectsDispatcher } from '../packages/effects-outbox/src/index.ts'
+import { createMemoryAttemptGuard } from '../packages/guard-memory/src/index.ts'
+import { createPasswordMethod } from '../packages/method-password/src/index.ts'
+import { createOutboxWorker } from '../packages/outbox-worker/src/index.ts'
 import {
   complianceSuites,
   createMemoryAuthStore,
@@ -21,8 +21,8 @@ import {
   deterministicIdGenerator,
   fixedClock,
   runComplianceSuite
-} from '../../testkit/src/index.ts'
-import { createOpaqueTokenFormat } from '../../token-opaque/src/index.ts'
+} from '../packages/testkit/src/index.ts'
+import { createOpaqueTokenFormat } from '../packages/token-opaque/src/index.ts'
 
 test('all published compliance suites execute against the reference adapters', async () => {
   const now = new Date('2026-01-01T00:00:00.000Z')

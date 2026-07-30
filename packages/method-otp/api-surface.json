@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "package": "@authmodules/method-otp",
+  "entrypoints": {
+    "type": "module",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js"
+      },
+      "./package.json": "./package.json"
+    }
+  },
+  "compatibility": {
+    "engines": {
+      "node": ">=24"
+    },
+    "peerDependencies": {
+      "@authmodules/contracts": "^0.1.0"
+    },
+    "peerDependenciesMeta": null,
+    "typesVersions": null,
+    "sideEffects": false
+  },
+  "declarations": [
+    {
+      "path": "dist/index.d.ts",
+      "sha256": "efc46829c2329fe574448aef2c525350d151ea0e2ba5ff9eb053bad8a7d3eb7e"
+    },
+    {
+      "path": "dist/method/create-otp-method.d.ts",
+      "sha256": "8f9377ab782eba671419877bcacf62479e04e216d36f57e45535e0fae4767057"
+    },
+    {
+      "path": "dist/method/types.d.ts",
+      "sha256": "89f6c1503ba7669ff60868440fd53f6c0ab517d3b3e58cd56d67f37a10186af0"
+    },
+    {
+      "path": "dist/subject/normalize.d.ts",
+      "sha256": "91be35f3b808105b9a76d52da632a8e8c3788e1ab27e7455a7ce367955802991"
+    }
+  ]
+}

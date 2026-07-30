@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "package": "@authmodules/core",
+  "entrypoints": {
+    "type": "module",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js"
+      },
+      "./package.json": "./package.json"
+    }
+  },
+  "compatibility": {
+    "engines": {
+      "node": ">=24"
+    },
+    "peerDependencies": {
+      "@authmodules/contracts": "^0.1.0"
+    },
+    "peerDependenciesMeta": null,
+    "typesVersions": null,
+    "sideEffects": false
+  },
+  "declarations": [
+    {
+      "path": "dist/auth/create-auth.d.ts",
+      "sha256": "ee989982cf7e54d4213a80403c9d663279fc1f50a5bc4f7d5816687c3c35e292"
+    },
+    {
+      "path": "dist/index.d.ts",
+      "sha256": "df035155bfa2af2746e26f7287ba903211d9160e6666917fc17ba70cdd03ca9f"
+    }
+  ]
+}

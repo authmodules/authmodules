@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "package": "@authmodules/effects-sync-delivery",
+  "entrypoints": {
+    "type": "module",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js"
+      },
+      "./package.json": "./package.json"
+    }
+  },
+  "compatibility": {
+    "engines": {
+      "node": ">=24"
+    },
+    "peerDependencies": {
+      "@authmodules/contracts": "^0.1.0"
+    },
+    "peerDependenciesMeta": null,
+    "typesVersions": null,
+    "sideEffects": false
+  },
+  "declarations": [
+    {
+      "path": "dist/dispatcher/create-sync-delivery-effects.d.ts",
+      "sha256": "d45d54b61160c16a7580b91451e9e6d864aedc344903d2de4f7ce14e6b101186"
+    },
+    {
+      "path": "dist/index.d.ts",
+      "sha256": "f433ef5cb1631c4d3364ae922459b2f3c408a5fa4a39caffcb767cf270503e4e"
+    }
+  ]
+}

@@ -1,90 +1,98 @@
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
+import path from 'node:path'
 import test from 'node:test'
 import {
+  assertReleasePleaseManifest,
   isExactIntegrity,
   isExactVersion,
   packageRepositories,
-  parseReleaseManifest,
-  publishedIntegrities,
-  publishedVersions,
-  workflowOutputs
+  shouldPublishReleaseManifest
 } from '../scripts/release-manifest.js'
 
+const root = path.resolve(import.meta.dirname, '..')
 const integrity = `sha512-${'A'.repeat(86)}==`
 
-function validManifest() {
-  return {
-    schemaVersion: 2,
-    release: '0.1.0',
-    packages: Object.fromEntries(packageRepositories.map((repository, index) => [
-      repository,
-      {
-        repository: `authmodules/${repository}`,
-        revision: (index + 1).toString(16).padStart(40, '0'),
-        tag: 'v0.1.0',
-        version: '0.1.0',
-        integrity
-      }
-    ]))
+test('root workspaces and Release Please paths describe the complete package set', async () => {
+  const rootManifest = await readJson('package.json')
+  const releaseConfig = await readJson('release-please-config.json')
+  const releaseManifest = await readJson('.release-please-manifest.json')
+  const expectedPaths = packageRepositories.map((name) => `packages/${name}`)
+
+  assert.deepEqual(rootManifest.workspaces, expectedPaths)
+  assert.deepEqual(Object.keys(releaseConfig.packages), expectedPaths)
+  assert.doesNotThrow(() => {
+    assertReleasePleaseManifest(releaseManifest, { allowEmpty: true })
+  })
+  assert.equal(releaseConfig['release-type'], 'node')
+  assert.equal(releaseConfig['initial-version'], '0.1.0')
+  assert.equal(releaseConfig['separate-pull-requests'], false)
+  assert.equal(releaseConfig['always-link-local'], false)
+  assert.equal(releaseConfig['include-component-in-tag'], true)
+  assert.equal(releaseConfig['include-v-in-tag'], true)
+  assert.equal(releaseConfig['bump-minor-pre-major'], true)
+  assert.equal(releaseConfig['bump-patch-for-minor-pre-major'], false)
+  assert.equal(
+    releaseConfig['bootstrap-sha'],
+    '033300cef823e97321435ce033b0cb48772ad2e4'
+  )
+  assert.deepEqual(releaseConfig.plugins, [{
+    type: 'node-workspace',
+    updatePeerDependencies: true
+  }])
+})
+
+test('release automation is manual, exact-head, and publication-gated', async () => {
+  const checkWorkflow = await readText('.github/workflows/check.yml')
+  const releasePullRequestWorkflow = await readText('.github/workflows/release-pr.yml')
+  const publishWorkflow = await readText('.github/workflows/release-publish.yml')
+  const dispatchScript = await readText('scripts/dispatch-release-pr-check.js')
+  const releasePlanScript = await readText('scripts/create-release-plan.js')
+  const releaseTriggerScript = await readText('scripts/detect-release-trigger.js')
+  const releaseVerificationScript = await readText('scripts/verify-release-publication.js')
+
+  assert.match(releasePullRequestWorkflow, /on:\n  workflow_dispatch:\n/)
+  assert.doesNotMatch(releasePullRequestWorkflow, /\n  push:/)
+  assert.match(dispatchScript, /head_sha: pullRequest\.head\.sha/)
+  assert.match(checkWorkflow, /if: inputs\.head_sha != ''/)
+  assert.match(checkWorkflow, /test "\$GITHUB_SHA" = "\$AUTHMODULES_EXPECTED_HEAD_SHA"/)
+  assert.match(
+    publishWorkflow,
+    /paths:\n      - \.release-please-manifest\.json/
+  )
+  assert.match(
+    releasePlanScript,
+    /assertReleasePleaseManifest\(currentManifest, \{ label: 'Current release manifest' \}\)/
+  )
+  assert.match(
+    releaseTriggerScript,
+    /shouldPublishReleaseManifest\(previousManifest, manifest\)/
+  )
+  assert.match(releaseTriggerScript, /if \(ref === '0'\.repeat\(40\)\) return \{\}/)
+  assert.match(publishWorkflow, /AUTHMODULES_BASE_SHA: \$\{\{ github\.event\.before \}\}/)
+  assert.match(
+    releaseVerificationScript,
+    /assertReleasePleaseManifest\(currentManifest, \{ label: 'Current release manifest' \}\)/
+  )
+  assert.ok(
+    publishWorkflow.indexOf('Verify published packages and clean consumer')
+      < publishWorkflow.indexOf('Create component tags and GitHub Releases')
+  )
+})
+
+test('initial workspace manifests keep independent package identities at 0.1.0', async () => {
+  for (const name of packageRepositories) {
+    const packagePath = `packages/${name}`
+    const manifest = await readJson(`${packagePath}/package.json`)
+    assert.equal(manifest.name, `@authmodules/${name}`)
+    assert.equal(manifest.version, '0.1.0')
+    assert.equal(manifest.repository.url, 'git+https://github.com/authmodules/authmodules.git')
+    assert.equal(manifest.repository.directory, packagePath)
+    assert.equal(manifest.publishConfig.registry, 'https://npm.pkg.github.com')
+    if (name !== 'contracts') {
+      assert.equal(manifest.peerDependencies['@authmodules/contracts'], '^0.1.0')
+    }
   }
-}
-
-test('release manifest freezes every repository, tag, revision, version, and package digest', () => {
-  const manifest = parseReleaseManifest(validManifest(), '0.1.0')
-
-  assert.deepEqual(publishedVersions(manifest), Object.fromEntries(
-    packageRepositories.map((repository) => [repository, '0.1.0'])
-  ))
-  assert.deepEqual(publishedIntegrities(manifest), Object.fromEntries(
-    packageRepositories.map((repository) => [repository, integrity])
-  ))
-  assert.equal(workflowOutputs(manifest).method_password_ref, 'refs/tags/v0.1.0')
-  assert.equal(workflowOutputs(manifest).published_versions.includes('"contracts":"0.1.0"'), true)
-  assert.equal(workflowOutputs(manifest).published_integrities.includes(`"contracts":"${integrity}"`), true)
-})
-
-test('release manifest rejects missing packages and mutable source references', () => {
-  const missing = validManifest()
-  delete missing.packages['guard-memory']
-  assert.throws(
-    () => parseReleaseManifest(missing, '0.1.0'),
-    /release manifest packages keys must be exactly/
-  )
-
-  const branchRef = validManifest()
-  branchRef.packages.core.revision = 'main'
-  assert.throws(
-    () => parseReleaseManifest(branchRef, '0.1.0'),
-    /core revision must be a full lowercase commit SHA/
-  )
-
-  const malformedIntegrity = validManifest()
-  malformedIntegrity.packages.core.integrity = 'sha512-not-a-digest'
-  assert.throws(
-    () => parseReleaseManifest(malformedIntegrity, '0.1.0'),
-    /core integrity must be an exact SHA-512 digest/
-  )
-})
-
-test('release manifest rejects mismatched repository, tag, and release identity', () => {
-  const wrongRepository = validManifest()
-  wrongRepository.packages.core.repository = 'someone/core'
-  assert.throws(
-    () => parseReleaseManifest(wrongRepository, '0.1.0'),
-    /core repository must be authmodules\/core/
-  )
-
-  const wrongTag = validManifest()
-  wrongTag.packages.core.tag = 'latest'
-  assert.throws(
-    () => parseReleaseManifest(wrongTag, '0.1.0'),
-    /core tag must match its package version/
-  )
-
-  assert.throws(
-    () => parseReleaseManifest(validManifest(), '0.2.0'),
-    /release manifest must describe 0.2.0/
-  )
 })
 
 test('exact versions follow SemVer identifier and leading-zero rules', () => {
@@ -120,3 +128,80 @@ test('package integrities require one canonical SHA-512 SRI digest', () => {
   assert.equal(isExactIntegrity(`sha512-${'A'.repeat(86)}=`), false)
   assert.equal(isExactIntegrity(`${integrity} ${integrity}`), false)
 })
+
+test('release manifests are either empty bootstrap state or the complete package set', () => {
+  const complete = Object.fromEntries(
+    packageRepositories.map((name) => [`packages/${name}`, '0.1.0'])
+  )
+
+  assert.doesNotThrow(() => assertReleasePleaseManifest({}, { allowEmpty: true }))
+  assert.doesNotThrow(() => assertReleasePleaseManifest(complete))
+  assert.throws(
+    () => assertReleasePleaseManifest({ 'packages/contracts': '0.1.0' }, { allowEmpty: true }),
+    /missing:/
+  )
+  assert.throws(
+    () => assertReleasePleaseManifest({ ...complete, 'packages/unknown': '0.1.0' }),
+    /unknown: packages\/unknown/
+  )
+  assert.throws(
+    () => assertReleasePleaseManifest({ ...complete, 'packages/contracts': '^0.1.0' }),
+    /invalid version for packages\/contracts/
+  )
+  assert.throws(() => assertReleasePleaseManifest({}), /missing:/)
+
+  assert.throws(
+    () => assertReleasePleaseManifest(Object.create({ inherited: true }), { allowEmpty: true }),
+    /plain data object/
+  )
+  const symbolManifest = Object.create(null)
+  symbolManifest[Symbol('unknown')] = '0.1.0'
+  assert.throws(
+    () => assertReleasePleaseManifest(symbolManifest, { allowEmpty: true }),
+    /only string package paths/
+  )
+  const nonEnumerableManifest = { ...complete }
+  Object.defineProperty(nonEnumerableManifest, 'packages/unknown', {
+    value: '0.1.0'
+  })
+  assert.throws(
+    () => assertReleasePleaseManifest(nonEnumerableManifest),
+    /only enumerable data properties/
+  )
+  let accessorReads = 0
+  const accessorManifest = { ...complete }
+  Object.defineProperty(accessorManifest, 'packages/contracts', {
+    enumerable: true,
+    get() {
+      accessorReads += 1
+      return '0.1.0'
+    }
+  })
+  assert.throws(
+    () => assertReleasePleaseManifest(accessorManifest),
+    /only enumerable data properties/
+  )
+  assert.equal(accessorReads, 0)
+})
+
+test('release manifest transitions cannot return to bootstrap state', () => {
+  const complete = Object.fromEntries(
+    packageRepositories.map((name) => [`packages/${name}`, '0.1.0'])
+  )
+
+  assert.equal(shouldPublishReleaseManifest({}, {}), false)
+  assert.equal(shouldPublishReleaseManifest({}, complete), true)
+  assert.equal(shouldPublishReleaseManifest(complete, complete), true)
+  assert.throws(
+    () => shouldPublishReleaseManifest(complete, {}),
+    /cannot transition back to bootstrap state/
+  )
+})
+
+async function readJson(relativePath) {
+  return JSON.parse(await readText(relativePath))
+}
+
+async function readText(relativePath) {
+  return readFile(path.join(root, relativePath), 'utf8')
+}

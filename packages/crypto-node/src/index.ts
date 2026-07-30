@@ -1,0 +1,6 @@
+export { createNodePasswordHasher } from './password/create-node-password-hasher.ts'
+export type { NodePasswordHasherOptions } from './password/types.ts'
+export { createNodeCryptoProvider } from './provider/create-node-crypto-provider.ts'
+export { createNodeSecretSealer } from './sealing/create-node-secret-sealer.ts'
+export type { NodeSecretSealerOptions } from './sealing/types.ts'
+export { protectedValue, rawSecret, sealedValue } from './values/factories.ts'

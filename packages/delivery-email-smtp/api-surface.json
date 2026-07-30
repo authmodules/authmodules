@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "package": "@authmodules/delivery-email-smtp",
+  "entrypoints": {
+    "type": "module",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js"
+      },
+      "./package.json": "./package.json"
+    }
+  },
+  "compatibility": {
+    "engines": {
+      "node": ">=24"
+    },
+    "peerDependencies": {
+      "@authmodules/contracts": "^0.1.0"
+    },
+    "peerDependenciesMeta": null,
+    "typesVersions": null,
+    "sideEffects": false
+  },
+  "declarations": [
+    {
+      "path": "dist/delivery/redaction.d.ts",
+      "sha256": "fdba112e048893a6be4490698459fc74596810a39bc73e0da74166fdf073cdd1"
+    },
+    {
+      "path": "dist/index.d.ts",
+      "sha256": "5963480ab8e5f51685c00678a30912a812025b571b0752fd5f11869868ef4bf5"
+    },
+    {
+      "path": "dist/transport/create-smtp-delivery-transport.d.ts",
+      "sha256": "c5b57563473450ec8057d4acdc1c2371a25f89053f5251048482dfe6a93b6b58"
+    },
+    {
+      "path": "dist/transport/types.d.ts",
+      "sha256": "541535b6f4577fdaf77d3187a31ff5d86dfe3972eb6c15fd6bc35759b1b945c7"
+    }
+  ]
+}
