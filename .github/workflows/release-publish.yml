@@ -356,7 +356,7 @@ jobs:
 
   github-release:
     if: >-
-      always()
+      !cancelled()
       && needs.plan.result == 'success'
       && needs.plan.outputs.release == 'true'
       && needs.verify.result == 'success'
