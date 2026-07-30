@@ -15,6 +15,10 @@ At the migration checkpoint:
 
 The imported package trees therefore include the complete reviewed source state.
 
+After the migration commit was pushed, every review page was checked again. All
+225 threads remained resolved, no review was pending or requested changes, and
+101 threads were outdated because the consolidated diff replaced legacy paths.
+
 ## Preserved review guarantees
 
 Deduplicating infrastructure preserved the review-driven behavior that materially protects packages:
