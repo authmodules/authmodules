@@ -510,7 +510,13 @@ async function assertDeclarationScanner(packageManifest) {
     "export type TemplateType = `prefix${import('./template.js').PublicType}`",
     "export type PackageImportType = import('#model').PublicType",
     'type DocumentationLiteral = "from \'./string-only.js\'"',
-    "type TemplateDocumentation = `import('./template-string-only.js')`"
+    "type TemplateDocumentation = `import('./template-string-only.js')`",
+    'type TemplateReference = `',
+    '/// <reference path="template-reference-only.d.ts" />',
+    '`',
+    '/*',
+    '/// <reference path="block-comment-only.d.ts" />',
+    '*/'
   ].join('\n')
   const actual = [...collectDeclarationSpecifiers(sourceText)].sort()
   const expected = [
@@ -536,7 +542,10 @@ async function assertDeclarationScanner(packageManifest) {
   const selfTestTarget = `./${normalizePath(path.relative(packageRoot, selfTestEntrypoint))}`
   const mappedImportDeclarations = await resolvePackageImportDeclarations({
     imports: {
-      '#model': selfTestTarget
+      '#model': {
+        types: selfTestTarget,
+        default: './missing-runtime.js'
+      }
     }
   }, '#model')
   if (
@@ -680,6 +689,14 @@ function collectPackageImportTargets(value, wildcardValue, targets) {
     return
   }
   if (value !== null && typeof value === 'object') {
+    const explicitTypeConditions = Object.entries(value)
+      .filter(([condition]) => condition === 'types' || condition.startsWith('types@'))
+    if (explicitTypeConditions.length > 0) {
+      for (const [, entry] of explicitTypeConditions) {
+        collectPackageImportTargets(entry, wildcardValue, targets)
+      }
+      return
+    }
     for (const entry of Object.values(value)) {
       collectPackageImportTargets(entry, wildcardValue, targets)
     }
@@ -783,19 +800,55 @@ function declarationFingerprint(sourceText) {
 
 function collectReferenceDirectives(sourceText) {
   const directives = []
-  const directivePattern = /^\s*\/\/\/\s*<reference\b([^>]*)\/?>\s*$/gm
-  for (const match of sourceText.matchAll(directivePattern)) {
-    const attributes = []
-    const attributePattern = /([A-Za-z][\w-]*)\s*=\s*(['"])(.*?)\2/g
-    for (const attribute of match[1].matchAll(attributePattern)) {
-      attributes.push({ name: attribute[1], value: attribute[3] })
+  let index = 0
+
+  while (index < sourceText.length) {
+    const character = sourceText[index]
+    const next = sourceText[index + 1]
+    if (character === "'" || character === '"') {
+      index = readStringToken(sourceText, index, character).nextIndex
+      continue
     }
-    attributes.sort((left, right) => (
-      left.name.localeCompare(right.name) || left.value.localeCompare(right.value)
-    ))
-    if (attributes.length > 0) directives.push({ attributes })
+    if (character === '`') {
+      index = readTemplateToken(sourceText, index).nextIndex
+      continue
+    }
+    if (character === '/' && next === '*') {
+      const end = sourceText.indexOf('*/', index + 2)
+      if (end === -1) throw new Error('Generated declaration contains an unterminated comment')
+      index = end + 2
+      continue
+    }
+    if (character !== '/' || next !== '/') {
+      index += 1
+      continue
+    }
+
+    const lineEnd = sourceText.indexOf('\n', index + 2)
+    const end = lineEnd === -1 ? sourceText.length : lineEnd
+    const lineStart = sourceText.lastIndexOf('\n', index - 1) + 1
+    const leadingText = sourceText.slice(lineStart, index)
+    const comment = sourceText.slice(index, end)
+    const match = /^\/\/\/\s*<reference\b([^>]*)\/?>\s*$/.exec(comment)
+    if (leadingText.trim() === '' && match !== null) {
+      directives.push(parseReferenceDirectiveAttributes(match[1]))
+    }
+    index = end
   }
+
   return directives
+}
+
+function parseReferenceDirectiveAttributes(sourceText) {
+  const attributes = []
+  const attributePattern = /([A-Za-z][\w-]*)\s*=\s*(['"])(.*?)\2/g
+  for (const attribute of sourceText.matchAll(attributePattern)) {
+    attributes.push({ name: attribute[1], value: attribute[3] })
+  }
+  attributes.sort((left, right) => (
+    left.name.localeCompare(right.name) || left.value.localeCompare(right.value)
+  ))
+  return { attributes }
 }
 
 function collectSemanticJsDocTags(comment) {
