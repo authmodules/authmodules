@@ -51,6 +51,7 @@ test('release automation is manual, exact-head, and publication-gated', async ()
   const releaseContextScript = await readText('scripts/resolve-release-publish-context.js')
   const releaseCommitScript = await readText('scripts/verify-release-commit.js')
   const releaseStateScript = await readText('scripts/resolve-github-release-state.js')
+  const packageProvenanceScript = await readText('scripts/package-provenance.js')
   const releaseTriggerScript = await readText('scripts/detect-release-trigger.js')
   const releaseVerificationScript = await readText('scripts/verify-release-publication.js')
   const planJob = workflowSection(publishWorkflow, 'plan', 'check')
@@ -95,14 +96,18 @@ test('release automation is manual, exact-head, and publication-gated', async ()
     repairJob,
     /node \.release-tooling\/scripts\/prepare-package-release-evidence\.js/
   )
+  assert.match(publishJob, /AUTHMODULES_RELEASE_SHA: \$\{\{ needs\.plan\.outputs\.head_sha \}\}/)
+  assert.match(repairJob, /AUTHMODULES_RELEASE_SHA: \$\{\{ needs\.plan\.outputs\.head_sha \}\}/)
   assert.match(
     publishJob,
-    /Verify registry package integrity[\s\S]*Attest build provenance[\s\S]*Attest SBOM/
+    /Verify registry package integrity[\s\S]*predicate-path: \$\{\{ steps\.evidence\.outputs\.provenance_path \}\}[\s\S]*Attest SBOM/
   )
   assert.match(
     repairJob,
-    /Verify existing registry package integrity[\s\S]*Attest build provenance[\s\S]*Attest SBOM/
+    /Verify existing registry package integrity[\s\S]*predicate-path: \$\{\{ steps\.evidence\.outputs\.provenance_path \}\}[\s\S]*Attest SBOM/
   )
+  assert.match(publishJob, /predicate-type: https:\/\/slsa\.dev\/provenance\/v1/)
+  assert.match(repairJob, /predicate-type: https:\/\/slsa\.dev\/provenance\/v1/)
   assert.match(verifyJob, /ref: \$\{\{ needs\.plan\.outputs\.head_sha \}\}/)
   assert.match(githubReleaseJob, /ref: \$\{\{ needs\.plan\.outputs\.head_sha \}\}/)
   assert.match(
@@ -113,6 +118,11 @@ test('release automation is manual, exact-head, and publication-gated', async ()
     githubReleaseJob,
     /Create component tags and GitHub Releases[\s\S]*Verify component tags and GitHub Releases/
   )
+  assert.match(
+    githubReleaseJob,
+    /AUTHMODULES_RELEASE_STATE_MODE: create/
+  )
+  assert.doesNotMatch(githubReleaseJob, /release-please github-release|npm exec/)
   assert.match(
     publishWorkflow,
     /AUTHMODULES_BASE_SHA: \$\{\{ needs\.plan\.outputs\.base_sha \}\}/
@@ -135,6 +145,16 @@ test('release automation is manual, exact-head, and publication-gated', async ()
     /Exactly one pending Release Please PR must match the release commit/
   )
   assert.match(releaseStateScript, /points to \$\{targetSha\} instead of \$\{releaseSha\}/)
+  assert.match(releaseStateScript, /ref: `refs\/tags\/\$\{state\.tag\}`/)
+  assert.match(releaseStateScript, /target_commitish: releaseSha/)
+  assert.match(
+    packageProvenanceScript,
+    /name: 'release source'[\s\S]*gitCommit: context\.releaseSha/
+  )
+  assert.match(
+    packageProvenanceScript,
+    /name: 'release workflow'[\s\S]*gitCommit: context\.workflowSha/
+  )
   assert.match(
     releasePlanScript,
     /assertReleasePleaseManifest\(currentManifest, \{ label: 'Current release manifest' \}\)/

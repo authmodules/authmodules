@@ -54,7 +54,21 @@ For every changed workspace the workflow:
 5. Treats an identical existing version as a safe rerun and a different integrity as a fatal conflict.
 6. Verifies registry integrity and uploads attestations and 90-day evidence.
 
+The provenance predicate records the release source commit separately from the workflow-definition commit. This keeps a manual repair truthful when the release commit is an ancestor of the `main` commit that supplies the repaired workflow.
+
+### Package release provenance v1
+
+The package release build type uses a SLSA provenance v1 predicate. Its external parameters are:
+
+- `package`: the scoped package name and exact version.
+- `releaseSource`: the repository URL and immutable release commit used to build the tarball.
+- `workflow`: the repository URL, workflow path, and Git ref that supplied the release implementation.
+
+The `github.eventName` internal parameter records whether the invocation was the original `push` or a manual `workflow_dispatch` repair. Resolved dependencies bind both the release source and the workflow definition to exact `gitCommit` digests. The invocation ID identifies the exact workflow run and attempt. The predicate is signed by the GitHub-hosted runner identity through `actions/attest`.
+
 After all matrix jobs succeed, a clean consumer installs the full package set from GitHub Packages and verifies every expected integrity. Component tags and GitHub Releases are created only after that verification succeeds. Tags use `<component>-v<version>`.
+
+Tag creation is performed through an exact-SHA state machine rather than a moving branch ref. It validates all existing component state before mutation, creates each missing lightweight tag at the pinned release commit, and only then creates the matching GitHub Release. A rerun safely resumes absent, tag-only, release-only, or already-complete component state; any conflicting target or metadata remains a fatal error.
 
 Tag rulesets allow the release workflow to create component tags. Updates and deletions remain blocked without bypass.
 

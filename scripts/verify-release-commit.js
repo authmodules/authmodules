@@ -19,7 +19,7 @@ const candidates = pullRequests.filter((pullRequest) => (
   && pullRequest.base.ref === 'main'
   && pullRequest.merge_commit_sha === head
   && pullRequest.head.repo?.full_name === repository
-  && pullRequest.head.ref.startsWith('release-please--branches--main')
+  && pullRequest.head.ref === 'release-please--branches--main'
   && pullRequest.labels.some((label) => (
     label.name === 'autorelease: pending'
     || label.name === 'autorelease: tagged'

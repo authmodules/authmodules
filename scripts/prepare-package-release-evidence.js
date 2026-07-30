@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process'
 import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
+import { createPackageProvenance } from './package-provenance.js'
 import { createPackageSbom } from './package-sbom.js'
 import { isExactIntegrity, isExactVersion } from './release-manifest.js'
 
@@ -12,6 +13,8 @@ const contractsDirectory = process.env.AUTHMODULES_CONTRACTS_DIRECTORY
 const evidenceDirectory = process.env.AUTHMODULES_EVIDENCE_DIRECTORY
 const expectedIntegrity = process.env.AUTHMODULES_EXPECTED_INTEGRITY
 const outputPath = process.env.GITHUB_OUTPUT
+const releaseSha = requiredSha('AUTHMODULES_RELEASE_SHA')
+const workflowSha = requiredSha('AUTHMODULES_WORKFLOW_SHA')
 
 if (typeof packageDirectory !== 'string' || packageDirectory.length === 0) {
   throw new Error('AUTHMODULES_PACKAGE_DIRECTORY is required')
@@ -54,6 +57,10 @@ const sbomPath = path.join(
   evidenceRoot,
   `${packageManifest.name.slice('@authmodules/'.length)}-${packageManifest.version}.cdx.json`
 )
+const provenancePath = path.join(
+  evidenceRoot,
+  `${packageManifest.name.slice('@authmodules/'.length)}-${packageManifest.version}.provenance.json`
+)
 await writeFile(
   sbomPath,
   `${JSON.stringify(
@@ -62,16 +69,31 @@ await writeFile(
     2
   )}\n`
 )
+await writeFile(
+  provenancePath,
+  `${JSON.stringify(createPackageProvenance(packageManifest, {
+    eventName: required('GITHUB_EVENT_NAME'),
+    releaseSha,
+    repository: required('GITHUB_REPOSITORY'),
+    runAttempt: required('GITHUB_RUN_ATTEMPT'),
+    runId: required('GITHUB_RUN_ID'),
+    serverUrl: required('GITHUB_SERVER_URL'),
+    workflowRef: required('GITHUB_WORKFLOW_REF'),
+    workflowSha
+  }), null, 2)}\n`
+)
 await writeFile(evidencePath, `${JSON.stringify({
   schemaVersion: 1,
   package: packageManifest.name,
   version: packageManifest.version,
   integrity: packResult.integrity,
   tarball: packResult.filename,
-  sbom: path.basename(sbomPath)
+  sbom: path.basename(sbomPath),
+  provenance: path.basename(provenancePath)
 }, null, 2)}\n`)
 await appendFile(outputPath, `package_tarball=${tarballPath}\n`)
 await appendFile(outputPath, `sbom_path=${sbomPath}\n`)
+await appendFile(outputPath, `provenance_path=${provenancePath}\n`)
 await appendFile(outputPath, `evidence_path=${evidencePath}\n`)
 await appendFile(outputPath, `package_integrity=${packResult.integrity}\n`)
 
@@ -79,6 +101,20 @@ console.log(`${packageManifest.name}@${packageManifest.version} release evidence
 
 async function readManifest(directory) {
   return JSON.parse(await readFile(path.join(directory, 'package.json'), 'utf8'))
+}
+
+function required(name) {
+  const value = process.env[name]
+  if (!value) throw new Error(`${name} is required`)
+  return value
+}
+
+function requiredSha(name) {
+  const value = required(name)
+  if (!/^[0-9a-f]{40}$/.test(value)) {
+    throw new Error(`${name} must be a full lowercase commit SHA`)
+  }
+  return value
 }
 
 function assertPackageManifest(manifest) {

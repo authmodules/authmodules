@@ -10,7 +10,11 @@ import { promisify } from 'node:util'
 const execFileAsync = promisify(execFile)
 const root = path.resolve(import.meta.dirname, '..')
 const script = path.join(root, 'scripts', 'resolve-github-release-state.js')
-const releaseSha = 'a'.repeat(40)
+const releaseSha = (await execFileAsync(
+  'git',
+  ['-C', root, 'rev-parse', 'HEAD'],
+  { encoding: 'utf8' }
+)).stdout.trim()
 const otherSha = 'b'.repeat(40)
 const annotatedTagSha = 'c'.repeat(40)
 
@@ -55,6 +59,55 @@ test('GitHub release state recovery handles absent, partial, and complete releas
   })
 })
 
+test('GitHub release creation pins every mutation and recovers split state', async (context) => {
+  await context.test('absent tags and releases are created at the release SHA', async () => {
+    await withGitHubFixture({
+      names: ['contracts', 'core'],
+      present: []
+    }, async (fixture) => {
+      assert.equal(await fixture.run('resolve'), 'create=true\nnormalize=false\n')
+      await fixture.run('create')
+      assert.deepEqual(fixture.refs(), ['contracts', 'core'])
+      assert.deepEqual(fixture.releases(), ['contracts', 'core'])
+      assert.ok(fixture.mutations().every(({ sha }) => sha === releaseSha))
+      assert.ok(fixture.releaseBodies().every((body) => body.includes('### Features')))
+      await fixture.run('normalize')
+      await fixture.run('verify')
+    })
+  })
+
+  await context.test('a tag without a release resumes release creation', async () => {
+    await withGitHubFixture({
+      names: ['contracts'],
+      refs: ['contracts'],
+      releases: []
+    }, async (fixture) => {
+      assert.equal(await fixture.run('resolve'), 'create=true\nnormalize=false\n')
+      await fixture.run('create')
+      assert.deepEqual(fixture.refs(), ['contracts'])
+      assert.deepEqual(fixture.releases(), ['contracts'])
+    })
+  })
+
+  await context.test('a release without a tag recreates only the exact tag', async () => {
+    await withGitHubFixture({
+      names: ['contracts'],
+      refs: [],
+      releases: ['contracts']
+    }, async (fixture) => {
+      assert.equal(await fixture.run('resolve'), 'create=true\nnormalize=false\n')
+      await fixture.run('create')
+      assert.deepEqual(fixture.refs(), ['contracts'])
+      assert.deepEqual(fixture.releases(), ['contracts'])
+      assert.deepEqual(fixture.mutations(), [{
+        kind: 'tag',
+        name: 'contracts',
+        sha: releaseSha
+      }])
+    })
+  })
+})
+
 test('GitHub release state validates target commits and annotated tags', async (context) => {
   await context.test('wrong release target is rejected', async () => {
     await withGitHubFixture({
@@ -78,13 +131,40 @@ test('GitHub release state validates target commits and annotated tags', async (
       await fixture.run('verify')
     })
   })
+
+  await context.test('wrong tag targets are rejected before release mutations', async () => {
+    await withGitHubFixture({
+      labels: ['autorelease: pending'],
+      names: ['contracts', 'core'],
+      present: ['contracts'],
+      refTarget: otherSha
+    }, async (fixture) => {
+      await assert.rejects(fixture.run('create'), /points to/)
+      assert.deepEqual(fixture.mutations(), [])
+    })
+  })
+
+  await context.test('lookalike Release Please branches are rejected', async () => {
+    await withGitHubFixture({
+      branch: 'release-please--branches--main--spoofed',
+      labels: ['autorelease: pending'],
+      names: ['contracts'],
+      present: []
+    }, async (fixture) => {
+      await assert.rejects(fixture.run('resolve'), /must belong to one merged/)
+      assert.deepEqual(fixture.mutations(), [])
+    })
+  })
 })
 
 async function withGitHubFixture(options, operation) {
   const names = options.names
-  const present = new Set(options.present)
+  const refs = new Set(options.refs ?? options.present)
+  const releases = new Set(options.releases ?? options.present)
   const annotated = new Set(options.annotated ?? [])
   const labels = new Set(options.labels ?? ['autorelease: pending'])
+  const mutations = []
+  const releaseBodies = []
   const temporaryRoot = await mkdtemp(path.join(tmpdir(), 'authmodules-release-state-'))
   let runNumber = 0
   const pullRequest = () => ({
@@ -93,7 +173,7 @@ async function withGitHubFixture(options, operation) {
     merge_commit_sha: releaseSha,
     base: { ref: 'main' },
     head: {
-      ref: 'release-please--branches--main--components',
+      ref: options.branch ?? 'release-please--branches--main',
       repo: { full_name: 'authmodules/authmodules' }
     },
     labels: [...labels].map((name) => ({ name }))
@@ -119,11 +199,11 @@ async function withGitHubFixture(options, operation) {
       && url.pathname.startsWith('/repos/authmodules/authmodules/git/ref/tags/')
     ) {
       const name = tag.slice(0, -'-v0.1.0'.length)
-      if (!present.has(name)) return json(response, 404, { message: 'Not Found' })
+      if (!refs.has(name)) return json(response, 404, { message: 'Not Found' })
       return json(response, 200, {
         object: annotated.has(name)
           ? { type: 'tag', sha: annotatedTagSha }
-          : { type: 'commit', sha: releaseSha }
+          : { type: 'commit', sha: options.refTarget ?? releaseSha }
       })
     }
     if (
@@ -131,9 +211,11 @@ async function withGitHubFixture(options, operation) {
       && url.pathname.startsWith('/repos/authmodules/authmodules/releases/tags/')
     ) {
       const name = tag.slice(0, -'-v0.1.0'.length)
-      if (!present.has(name)) return json(response, 404, { message: 'Not Found' })
+      if (!releases.has(name)) return json(response, 404, { message: 'Not Found' })
       return json(response, 200, {
         draft: false,
+        name: `${name}: v0.1.0`,
+        prerelease: false,
         tag_name: tag,
         target_commitish: options.releaseTarget ?? releaseSha
       })
@@ -143,8 +225,44 @@ async function withGitHubFixture(options, operation) {
       && url.pathname === `/repos/authmodules/authmodules/git/tags/${annotatedTagSha}`
     ) {
       return json(response, 200, {
-        object: { type: 'commit', sha: releaseSha }
+        object: { type: 'commit', sha: options.refTarget ?? releaseSha }
       })
+    }
+    if (
+      request.method === 'POST'
+      && url.pathname === '/repos/authmodules/authmodules/git/refs'
+    ) {
+      const body = JSON.parse(await readRequest(request))
+      const name = body.ref.slice('refs/tags/'.length, -'-v0.1.0'.length)
+      if (refs.has(name)) return json(response, 422, { message: 'Reference exists' })
+      refs.add(name)
+      mutations.push({ kind: 'tag', name, sha: body.sha })
+      return json(response, 201, {
+        object: { type: 'commit', sha: body.sha },
+        ref: body.ref
+      })
+    }
+    if (
+      request.method === 'POST'
+      && url.pathname === '/repos/authmodules/authmodules/releases'
+    ) {
+      const body = JSON.parse(await readRequest(request))
+      const name = body.tag_name.slice(0, -'-v0.1.0'.length)
+      if (
+        !refs.has(name)
+        || releases.has(name)
+        || body.target_commitish !== releaseSha
+        || body.name !== `${name}: v0.1.0`
+        || body.draft !== false
+        || body.prerelease !== false
+        || body.make_latest !== 'false'
+      ) {
+        return json(response, 422, { message: 'Invalid release state' })
+      }
+      releases.add(name)
+      releaseBodies.push(body.body)
+      mutations.push({ kind: 'release', name, sha: body.target_commitish })
+      return json(response, 201, body)
     }
     if (
       request.method === 'POST'
@@ -173,6 +291,10 @@ async function withGitHubFixture(options, operation) {
   try {
     await operation({
       labels: () => [...labels],
+      mutations: () => [...mutations],
+      refs: () => [...refs],
+      releaseBodies: () => [...releaseBodies],
+      releases: () => [...releases],
       run: async (mode) => {
         runNumber += 1
         const outputPath = path.join(temporaryRoot, `output-${runNumber}`)

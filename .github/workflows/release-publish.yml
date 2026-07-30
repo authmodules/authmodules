@@ -163,13 +163,15 @@ jobs:
         run: npm run build --workspace "${PACKAGE_NAME}"
         env:
           PACKAGE_NAME: ${{ matrix.package }}
-      - name: Prepare exact tarball and SBOM
+      - name: Prepare exact tarball and attestations
         id: evidence
         run: node .release-tooling/scripts/prepare-package-release-evidence.js
         env:
           AUTHMODULES_CONTRACTS_DIRECTORY: packages/contracts
           AUTHMODULES_EVIDENCE_DIRECTORY: ${{ runner.temp }}/release-evidence/${{ matrix.name }}
           AUTHMODULES_PACKAGE_DIRECTORY: ${{ matrix.path }}
+          AUTHMODULES_RELEASE_SHA: ${{ needs.plan.outputs.head_sha }}
+          AUTHMODULES_WORKFLOW_SHA: ${{ github.workflow_sha }}
       - name: Resolve registry publication state
         id: publication
         run: node .release-tooling/scripts/resolve-package-publication.js
@@ -196,6 +198,8 @@ jobs:
       - name: Attest build provenance
         uses: actions/attest@v4
         with:
+          predicate-path: ${{ steps.evidence.outputs.provenance_path }}
+          predicate-type: https://slsa.dev/provenance/v1
           subject-path: ${{ steps.evidence.outputs.package_tarball }}
       - name: Attest SBOM
         uses: actions/attest@v4
@@ -208,6 +212,7 @@ jobs:
           name: release-${{ matrix.name }}-${{ matrix.version }}-${{ needs.plan.outputs.head_sha }}
           path: |
             ${{ steps.evidence.outputs.package_tarball }}
+            ${{ steps.evidence.outputs.provenance_path }}
             ${{ steps.evidence.outputs.sbom_path }}
             ${{ steps.evidence.outputs.evidence_path }}
           if-no-files-found: error
@@ -258,13 +263,15 @@ jobs:
         run: npm run build --workspace "${PACKAGE_NAME}"
         env:
           PACKAGE_NAME: ${{ matrix.package }}
-      - name: Prepare exact tarball and SBOM
+      - name: Prepare exact tarball and attestations
         id: evidence
         run: node .release-tooling/scripts/prepare-package-release-evidence.js
         env:
           AUTHMODULES_CONTRACTS_DIRECTORY: packages/contracts
           AUTHMODULES_EVIDENCE_DIRECTORY: ${{ runner.temp }}/release-evidence/${{ matrix.name }}
           AUTHMODULES_PACKAGE_DIRECTORY: ${{ matrix.path }}
+          AUTHMODULES_RELEASE_SHA: ${{ needs.plan.outputs.head_sha }}
+          AUTHMODULES_WORKFLOW_SHA: ${{ github.workflow_sha }}
       - name: Verify existing registry package integrity
         run: node .release-tooling/scripts/resolve-package-publication.js
         env:
@@ -276,6 +283,8 @@ jobs:
       - name: Attest build provenance
         uses: actions/attest@v4
         with:
+          predicate-path: ${{ steps.evidence.outputs.provenance_path }}
+          predicate-type: https://slsa.dev/provenance/v1
           subject-path: ${{ steps.evidence.outputs.package_tarball }}
       - name: Attest SBOM
         uses: actions/attest@v4
@@ -288,6 +297,7 @@ jobs:
           name: release-${{ matrix.name }}-${{ matrix.version }}-${{ needs.plan.outputs.head_sha }}
           path: |
             ${{ steps.evidence.outputs.package_tarball }}
+            ${{ steps.evidence.outputs.provenance_path }}
             ${{ steps.evidence.outputs.sbom_path }}
             ${{ steps.evidence.outputs.evidence_path }}
           if-no-files-found: error
@@ -352,7 +362,7 @@ jobs:
     permissions:
       contents: write
       issues: write
-      pull-requests: write
+      pull-requests: read
     steps:
       - name: Checkout release commit
         uses: actions/checkout@v7
@@ -370,11 +380,6 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: 24
-          cache: npm
-      - name: Install exact npm
-        run: npm install --global npm@11.16.0
-      - name: Install release tooling
-        run: npm ci --ignore-scripts
       - name: Resolve component release state
         id: release_state
         run: node .release-tooling/scripts/resolve-github-release-state.js
@@ -385,17 +390,16 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Create component tags and GitHub Releases
         if: steps.release_state.outputs.create == 'true'
-        run: >-
-          npm exec -- release-please github-release
-          --repo-url="${GITHUB_REPOSITORY}"
-          --target-branch=main
-          --token="${RELEASE_PLEASE_TOKEN}"
-          --config-file=release-please-config.json
-          --manifest-file=.release-please-manifest.json
+        run: node .release-tooling/scripts/resolve-github-release-state.js
         env:
-          RELEASE_PLEASE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AUTHMODULES_RELEASE_MATRIX: ${{ needs.plan.outputs.matrix }}
+          AUTHMODULES_RELEASE_SHA: ${{ needs.plan.outputs.head_sha }}
+          AUTHMODULES_RELEASE_STATE_MODE: create
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Normalize Release Please lifecycle
-        if: steps.release_state.outputs.normalize == 'true'
+        if: >-
+          steps.release_state.outputs.create == 'true'
+          || steps.release_state.outputs.normalize == 'true'
         run: node .release-tooling/scripts/resolve-github-release-state.js
         env:
           AUTHMODULES_RELEASE_MATRIX: ${{ needs.plan.outputs.matrix }}
