@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process'
 import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
+import { createPackageSbom } from './package-sbom.js'
 import { isExactIntegrity, isExactVersion } from './release-manifest.js'
 
 const execFileAsync = promisify(execFile)
@@ -53,7 +54,14 @@ const sbomPath = path.join(
   evidenceRoot,
   `${packageManifest.name.slice('@authmodules/'.length)}-${packageManifest.version}.cdx.json`
 )
-await writeFile(sbomPath, `${JSON.stringify(createSbom(packageManifest, contractsManifest), null, 2)}\n`)
+await writeFile(
+  sbomPath,
+  `${JSON.stringify(
+    createPackageSbom(packageManifest, contractsManifest, packResult.integrity),
+    null,
+    2
+  )}\n`
+)
 await writeFile(evidencePath, `${JSON.stringify({
   schemaVersion: 1,
   package: packageManifest.name,
@@ -112,59 +120,4 @@ async function packPackage(directory, destination) {
     throw new Error('npm pack did not produce one valid package tarball')
   }
   return packed
-}
-
-function createSbom(manifest, contractsManifest) {
-  const rootRef = packagePurl(manifest)
-  const contractRange = manifest.peerDependencies?.['@authmodules/contracts']
-  const includesContracts = contractRange !== undefined
-  const contractsRef = packagePurl(contractsManifest)
-
-  return {
-    $schema: 'https://cyclonedx.org/schema/bom-1.6.schema.json',
-    bomFormat: 'CycloneDX',
-    specVersion: '1.6',
-    version: 1,
-    metadata: {
-      component: createComponent(manifest, rootRef)
-    },
-    components: includesContracts
-      ? [{
-          ...createComponent(contractsManifest, contractsRef),
-          scope: 'required',
-          properties: [{
-            name: 'authmodules:peerDependencyRange',
-            value: contractRange
-          }]
-        }]
-      : [],
-    dependencies: [
-      {
-        ref: rootRef,
-        dependsOn: includesContracts ? [contractsRef] : []
-      },
-      ...(includesContracts ? [{ ref: contractsRef, dependsOn: [] }] : [])
-    ]
-  }
-}
-
-function createComponent(manifest, bomRef) {
-  return {
-    type: 'library',
-    'bom-ref': bomRef,
-    group: 'authmodules',
-    name: manifest.name.slice('@authmodules/'.length),
-    version: manifest.version,
-    description: manifest.description,
-    licenses: [{
-      license: {
-        id: manifest.license
-      }
-    }],
-    purl: bomRef
-  }
-}
-
-function packagePurl(manifest) {
-  return `pkg:npm/%40authmodules/${manifest.name.slice('@authmodules/'.length)}@${manifest.version}`
 }
