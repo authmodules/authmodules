@@ -32,7 +32,9 @@ Dependency review and CodeQL remain separate workflows. Dependabot owns npm and 
 Release preparation is intentionally manual:
 
 1. Dispatch `Prepare release pull request`.
-2. Release Please creates or updates one ready pull request without lifecycle labels.
+2. Release Please creates or updates one ready pull request without lifecycle labels. The
+   workflow accepts only the release branch owned by this repository, not a same-named fork
+   branch.
 3. The workflow refreshes the root lockfile and dispatches `check.yml` for the exact pull request head.
 4. Review the generated versions and changelogs.
 5. Merge the release pull request only after its exact head is green.
@@ -54,7 +56,7 @@ For every changed workspace the workflow:
 5. Treats an identical existing version as a safe rerun and a different integrity as a fatal conflict.
 6. Verifies registry integrity and creates build-provenance and SBOM attestations.
 
-After every matrix job succeeds, a clean consumer installs the complete package set from GitHub Packages and confirms that every package is public and linked to `authmodules/authmodules`. The workflow then creates `<component>-v<version>` tags and GitHub Releases for the changed packages. Existing tags must point to the same release commit; updates and deletions remain blocked by the tag ruleset.
+After every matrix job succeeds, a clean consumer installs the complete package set from GitHub Packages and confirms, with bounded retries for registry propagation, that every package is public and linked to `authmodules/authmodules`. Before creating any tag, the workflow validates every changelog and any existing Release metadata. It then creates `<component>-v<version>` tags and GitHub Releases for the changed packages without replacing the repository's Latest Release. Existing tags must point to the same release commit; updates and deletions remain blocked by the tag ruleset.
 
 ## Package consumers
 

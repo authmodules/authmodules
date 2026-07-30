@@ -205,30 +205,35 @@ async function assertPublishedPackageMetadata() {
     throw new Error('GITHUB_TOKEN and GITHUB_REPOSITORY are required for published packages')
   }
 
-  for (const name of repositories) {
-    const response = await fetch(
-      `https://api.github.com/orgs/authmodules/packages/npm/${encodeURIComponent(name)}`,
-      {
-        headers: {
-          Accept: 'application/vnd.github+json',
-          Authorization: `Bearer ${token}`,
-          'X-GitHub-Api-Version': '2022-11-28'
+  await Promise.all(
+    repositories.map((name) => retry(
+      async () => {
+        const response = await fetch(
+          `https://api.github.com/orgs/authmodules/packages/npm/${encodeURIComponent(name)}`,
+          {
+            headers: {
+              Accept: 'application/vnd.github+json',
+              Authorization: `Bearer ${token}`,
+              'X-GitHub-Api-Version': '2022-11-28'
+            }
+          }
+        )
+        if (!response.ok) {
+          throw new Error(`Unable to read @authmodules/${name} package metadata`)
         }
-      }
-    )
-    if (!response.ok) {
-      throw new Error(`Unable to read @authmodules/${name} package metadata`)
-    }
-    const metadata = await response.json()
-    if (
-      metadata.visibility !== 'public'
-      || metadata.repository?.full_name !== expectedRepository
-    ) {
-      throw new Error(
-        `@authmodules/${name} must be public and linked to ${expectedRepository}`
-      )
-    }
-  }
+        const metadata = await response.json()
+        if (
+          metadata.visibility !== 'public'
+          || metadata.repository?.full_name !== expectedRepository
+        ) {
+          throw new Error(
+            `@authmodules/${name} must be public and linked to ${expectedRepository}`
+          )
+        }
+      },
+      { attempts: 6, delayMilliseconds: 5_000 }
+    ))
+  )
 }
 
 async function retry(operation, options) {

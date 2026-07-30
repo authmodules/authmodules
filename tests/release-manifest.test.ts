@@ -47,6 +47,9 @@ test('release automation has one direct path without lifecycle state', async () 
   assert.match(releasePullRequestWorkflow, /on:\n  workflow_dispatch:\n/)
   assert.match(releasePullRequestWorkflow, /node scripts\/create-release-pr\.js/)
   assert.match(releasePullRequestWorkflow, /gh workflow run check\.yml/)
+  assert.match(releasePullRequestWorkflow, /headRepositoryOwner\.login/)
+  assert.match(releasePullRequestWorkflow, /headRepository\.name/)
+  assert.match(releasePullRequestWorkflow, /== \$repository/)
   assert.doesNotMatch(releasePullRequestWorkflow, /issues: write/)
   assert.match(createPullRequestScript, /skipLabeling: true/)
   assert.match(checkWorkflow, /ref: \$\{\{ inputs\.head_sha \|\| github\.sha \}\}/)
@@ -67,7 +70,19 @@ test('release automation has one direct path without lifecycle state', async () 
   assert.match(publishWorkflow, /GITHUB_TOKEN: \$\{\{ secrets\.GITHUB_TOKEN \}\}/)
   assert.match(consumerScript, /metadata\.visibility !== 'public'/)
   assert.match(consumerScript, /metadata\.repository\?\.full_name !== expectedRepository/)
+  assert.match(consumerScript, /attempts: 6, delayMilliseconds: 5_000/)
+  assert.match(publishWorkflow, /Preflight component Releases/)
+  assert.match(
+    publishWorkflow,
+    /Preflight component Releases[\s\S]*node scripts\/release-notes\.js[\s\S]*Create component tags and GitHub Releases[\s\S]*gh release create/
+  )
+  assert.match(
+    publishWorkflow,
+    /\.tag_name == \$tag[\s\S]*\.draft == false[\s\S]*\.prerelease == false/
+  )
+  assert.match(publishWorkflow, /\(HTTP 404\)/)
   assert.match(publishWorkflow, /gh release create "\$tag"/)
+  assert.match(publishWorkflow, /--latest=false/)
   assert.doesNotMatch(combined, /autorelease:|repair|release state/i)
 })
 

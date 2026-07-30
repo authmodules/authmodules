@@ -44,8 +44,23 @@ jobs:
               --state open \
               --base main \
               --head release-please--branches--main \
-              --limit 2 \
-              --json headRefName,number
+              --limit 100 \
+              --json headRefName,headRepository,headRepositoryOwner,number
+          )"
+          pull_requests="$(
+            jq --arg repository "$GITHUB_REPOSITORY" '
+              [
+                .[]
+                | select(
+                    (
+                      (.headRepositoryOwner.login // "")
+                      + "/"
+                      + (.headRepository.name // "")
+                    ) == $repository
+                    and .headRefName == "release-please--branches--main"
+                  )
+              ]
+            ' <<<"$pull_requests"
           )"
           count="$(jq length <<<"$pull_requests")"
           if [[ "$count" == 0 ]]; then
