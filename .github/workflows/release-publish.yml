@@ -18,6 +18,9 @@ jobs:
   plan:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
       count: ${{ steps.release_plan.outputs.count }}
       matrix: ${{ steps.release_plan.outputs.matrix }}
@@ -28,6 +31,36 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
           ref: ${{ github.sha }}
+      - name: Verify Release Please merge
+        run: |
+          pull_requests="$(
+            gh api \
+              -H "Accept: application/vnd.github+json" \
+              "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls"
+          )"
+          matches="$(
+            jq \
+              --arg repository "$GITHUB_REPOSITORY" \
+              --arg sha "$GITHUB_SHA" \
+              '[
+                .[]
+                | select(
+                    .merged_at != null
+                    and .merge_commit_sha == $sha
+                    and .base.ref == "main"
+                    and .head.ref == "release-please--branches--main"
+                    and .head.repo.full_name == $repository
+                    and .title == "chore: release main"
+                  )
+              ] | length' \
+              <<<"$pull_requests"
+          )"
+          if [[ "$matches" != 1 ]]; then
+            echo "Release commit must belong to one merged Release Please pull request" >&2
+            exit 1
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Create changed package matrix
         id: release_plan
         run: node scripts/create-release-plan.js
@@ -179,6 +212,7 @@ jobs:
         run: node scripts/check-packed-consumer.js
         env:
           AUTHMODULES_PUBLISHED: 'true'
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   github-release:

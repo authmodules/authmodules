@@ -19,6 +19,7 @@ const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm'
 const publishedVersions = process.env.AUTHMODULES_PUBLISHED === 'true'
   ? await readPublishedVersions()
   : undefined
+if (publishedVersions) await assertPublishedPackageMetadata()
 const temporaryRoot = await mkdtemp(path.join(tmpdir(), 'authmodules-packed-consumer-'))
 const tarballRoot = path.join(temporaryRoot, 'tarballs')
 const consumerRoot = path.join(temporaryRoot, 'consumer')
@@ -195,6 +196,39 @@ async function readPublishedVersions() {
       return [repository, version]
     })
   ))
+}
+
+async function assertPublishedPackageMetadata() {
+  const token = process.env.GITHUB_TOKEN
+  const expectedRepository = process.env.GITHUB_REPOSITORY
+  if (!token || !expectedRepository) {
+    throw new Error('GITHUB_TOKEN and GITHUB_REPOSITORY are required for published packages')
+  }
+
+  for (const name of repositories) {
+    const response = await fetch(
+      `https://api.github.com/orgs/authmodules/packages/npm/${encodeURIComponent(name)}`,
+      {
+        headers: {
+          Accept: 'application/vnd.github+json',
+          Authorization: `Bearer ${token}`,
+          'X-GitHub-Api-Version': '2022-11-28'
+        }
+      }
+    )
+    if (!response.ok) {
+      throw new Error(`Unable to read @authmodules/${name} package metadata`)
+    }
+    const metadata = await response.json()
+    if (
+      metadata.visibility !== 'public'
+      || metadata.repository?.full_name !== expectedRepository
+    ) {
+      throw new Error(
+        `@authmodules/${name} must be public and linked to ${expectedRepository}`
+      )
+    }
+  }
 }
 
 async function retry(operation, options) {

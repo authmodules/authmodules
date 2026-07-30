@@ -39,7 +39,7 @@ Release preparation is intentionally manual:
 
 Ordinary pushes and merges do not create release pull requests.
 
-The publish workflow runs only when `.release-please-manifest.json` changes on `main`. It computes the changed package paths, reruns the complete check, and publishes only those packages.
+The publish workflow runs only when `.release-please-manifest.json` changes on `main`. Before planning a release, it confirms that the exact commit belongs to one merged `chore: release main` pull request from `release-please--branches--main`. It then computes the changed package paths, reruns the complete check, and publishes only those packages.
 
 ## Package publication
 
@@ -54,7 +54,7 @@ For every changed workspace the workflow:
 5. Treats an identical existing version as a safe rerun and a different integrity as a fatal conflict.
 6. Verifies registry integrity and creates build-provenance and SBOM attestations.
 
-After every matrix job succeeds, a clean consumer installs the complete package set from GitHub Packages. The workflow then creates `<component>-v<version>` tags and GitHub Releases for the changed packages. Existing tags must point to the same release commit; updates and deletions remain blocked by the tag ruleset.
+After every matrix job succeeds, a clean consumer installs the complete package set from GitHub Packages and confirms that every package is public and linked to `authmodules/authmodules`. The workflow then creates `<component>-v<version>` tags and GitHub Releases for the changed packages. Existing tags must point to the same release commit; updates and deletions remain blocked by the tag ruleset.
 
 ## Package consumers
 
