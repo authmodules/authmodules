@@ -210,6 +210,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: release-${{ matrix.name }}-${{ matrix.version }}-${{ needs.plan.outputs.head_sha }}
+          overwrite: true
           path: |
             ${{ steps.evidence.outputs.package_tarball }}
             ${{ steps.evidence.outputs.provenance_path }}
@@ -295,6 +296,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: release-${{ matrix.name }}-${{ matrix.version }}-${{ needs.plan.outputs.head_sha }}
+          overwrite: true
           path: |
             ${{ steps.evidence.outputs.package_tarball }}
             ${{ steps.evidence.outputs.provenance_path }}

@@ -108,6 +108,8 @@ test('release automation is manual, exact-head, and publication-gated', async ()
   )
   assert.match(publishJob, /predicate-type: https:\/\/slsa\.dev\/provenance\/v1/)
   assert.match(repairJob, /predicate-type: https:\/\/slsa\.dev\/provenance\/v1/)
+  assert.match(publishJob, /Upload release evidence[\s\S]*overwrite: true/)
+  assert.match(repairJob, /Upload release evidence[\s\S]*overwrite: true/)
   assert.match(verifyJob, /ref: \$\{\{ needs\.plan\.outputs\.head_sha \}\}/)
   assert.match(githubReleaseJob, /ref: \$\{\{ needs\.plan\.outputs\.head_sha \}\}/)
   assert.match(

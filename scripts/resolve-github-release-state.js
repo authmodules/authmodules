@@ -316,7 +316,6 @@ function assertReleaseMetadata(entry, tag, release) {
     || release.name !== releaseName(entry)
     || release.draft
     || release.prerelease
-    || release.target_commitish !== releaseSha
   ) {
     throw new Error(`${tag} GitHub Release metadata does not match the release commit`)
   }

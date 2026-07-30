@@ -68,7 +68,9 @@ The `github.eventName` internal parameter records whether the invocation was the
 
 After all matrix jobs succeed, a clean consumer installs the full package set from GitHub Packages and verifies every expected integrity. Component tags and GitHub Releases are created only after that verification succeeds. Tags use `<component>-v<version>`.
 
-Tag creation is performed through an exact-SHA state machine rather than a moving branch ref. It validates all existing component state before mutation, creates each missing lightweight tag at the pinned release commit, and only then creates the matching GitHub Release. A rerun safely resumes absent, tag-only, release-only, or already-complete component state; any conflicting target or metadata remains a fatal error.
+Tag creation is performed through an exact-SHA state machine rather than a moving branch ref. It validates all existing component state before mutation, creates each missing lightweight tag at the pinned release commit, and only then creates the matching GitHub Release. The verified tag target is the release commit authority; GitHub may retain a branch-valued `target_commitish` as auxiliary Release metadata after the tag exists. A rerun safely resumes absent, tag-only, release-only, or already-complete component state; any conflicting tag target or canonical Release metadata remains a fatal error.
+
+Evidence uploads overwrite only the same component/version/release-SHA artifact name within the same workflow run. This lets a later run attempt reproduce and replace the identical logical evidence bundle instead of failing before release recovery starts.
 
 Tag rulesets allow the release workflow to create component tags. Updates and deletions remain blocked without bypass.
 

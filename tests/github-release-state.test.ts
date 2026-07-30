@@ -109,14 +109,15 @@ test('GitHub release creation pins every mutation and recovers split state', asy
 })
 
 test('GitHub release state validates target commits and annotated tags', async (context) => {
-  await context.test('wrong release target is rejected', async () => {
+  await context.test('a branch-valued release target is accepted when its tag is pinned', async () => {
     await withGitHubFixture({
       labels: ['autorelease: tagged'],
       names: ['contracts'],
       present: ['contracts'],
-      releaseTarget: otherSha
+      releaseTarget: 'main'
     }, async (fixture) => {
-      await assert.rejects(fixture.run('resolve'), /metadata does not match/)
+      await fixture.run('verify')
+      assert.deepEqual(fixture.mutations(), [])
     })
   })
 
