@@ -273,6 +273,10 @@ jobs:
           AUTHMODULES_PACKAGE_TARBALL: ${{ steps.evidence.outputs.package_tarball }}
           AUTHMODULES_PUBLICATION_MODE: verify
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Attest build provenance
+        uses: actions/attest@v4
+        with:
+          subject-path: ${{ steps.evidence.outputs.package_tarball }}
       - name: Attest SBOM
         uses: actions/attest@v4
         with:

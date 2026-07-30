@@ -95,6 +95,14 @@ test('release automation is manual, exact-head, and publication-gated', async ()
     repairJob,
     /node \.release-tooling\/scripts\/prepare-package-release-evidence\.js/
   )
+  assert.match(
+    publishJob,
+    /Verify registry package integrity[\s\S]*Attest build provenance[\s\S]*Attest SBOM/
+  )
+  assert.match(
+    repairJob,
+    /Verify existing registry package integrity[\s\S]*Attest build provenance[\s\S]*Attest SBOM/
+  )
   assert.match(verifyJob, /ref: \$\{\{ needs\.plan\.outputs\.head_sha \}\}/)
   assert.match(githubReleaseJob, /ref: \$\{\{ needs\.plan\.outputs\.head_sha \}\}/)
   assert.match(
