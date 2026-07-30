@@ -21,7 +21,7 @@ const manifestPath = path.resolve(`releases/${release}.json`)
 const manifest = parseReleaseManifest(JSON.parse(await readFile(manifestPath, 'utf8')), release)
 const planRef = `release-plan/v${release}`
 const centralTag = `v${release}`
-const planRevision = await resolveCommit('authmodules/authmodules', planRef)
+const planRevision = await resolveTagCommit('authmodules/authmodules', planRef)
 
 if (planRevision !== undefined) {
   const planManifest = await resolveReleasePlanManifest(release, planRef)
@@ -32,7 +32,7 @@ if (planRevision !== undefined) {
 
 const packageStatuses = await mapWithConcurrency(packageRepositories, 1, async (repository) => {
   const entry = manifest.packages[repository]
-  const tagRevision = await resolveCommit(entry.repository, entry.tag)
+  const tagRevision = await resolveTagCommit(entry.repository, entry.tag)
   const githubRelease = await resolveGitHubRelease(entry.repository, entry.tag)
   const registryVersions = await resolvePackageVersions(repository)
   const registryVersion = registryVersions.includes(entry.version)
@@ -61,7 +61,7 @@ const packageStatuses = await mapWithConcurrency(packageRepositories, 1, async (
   }
 })
 
-const centralTagRevision = await resolveCommit('authmodules/authmodules', centralTag)
+const centralTagRevision = await resolveTagCommit('authmodules/authmodules', centralTag)
 const centralRelease = await resolveGitHubRelease('authmodules/authmodules', centralTag)
 
 if (
@@ -86,13 +86,42 @@ console.log(JSON.stringify({
     .map((status) => status.package)
 }, null, 2))
 
-async function resolveCommit(repository, ref) {
-  const response = await ghJson(['api', `repos/${repository}/commits/${encodeURIComponent(ref)}`], true)
+async function resolveTagCommit(repository, tag) {
+  const encodedTag = tag.split('/').map(encodeURIComponent).join('/')
+  const response = await ghJson(
+    ['api', `repos/${repository}/git/ref/tags/${encodedTag}`],
+    true
+  )
   if (response === undefined) return undefined
-  if (typeof response.sha !== 'string' || !/^[0-9a-f]{40}$/.test(response.sha)) {
-    throw new Error(`${repository} ${ref} did not resolve to one commit`)
+  if (response.ref !== `refs/tags/${tag}`) {
+    throw new Error(`${repository} ${tag} did not resolve to the exact requested tag`)
   }
-  return response.sha
+  let object = response.object
+  const visitedTags = new Set()
+
+  for (let depth = 0; depth < 10; depth += 1) {
+    if (
+      object === null
+      || typeof object !== 'object'
+      || typeof object.sha !== 'string'
+      || !/^[0-9a-f]{40}$/.test(object.sha)
+      || (object.type !== 'commit' && object.type !== 'tag')
+    ) {
+      throw new Error(`${repository} ${tag} returned an invalid Git object`)
+    }
+    if (object.type === 'commit') return object.sha
+    if (visitedTags.has(object.sha)) {
+      throw new Error(`${repository} ${tag} contains a cyclic annotated tag chain`)
+    }
+    visitedTags.add(object.sha)
+    const annotatedTag = await ghJson(
+      ['api', `repos/${repository}/git/tags/${object.sha}`],
+      false
+    )
+    object = annotatedTag?.object
+  }
+
+  throw new Error(`${repository} ${tag} exceeds the annotated tag depth limit`)
 }
 
 async function resolveGitHubRelease(repository, tag) {

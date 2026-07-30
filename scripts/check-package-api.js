@@ -75,7 +75,8 @@ async function createSnapshot(packageManifest) {
         packageManifest.peerDependenciesMeta ?? null
       ),
       typesVersions: packageManifest.typesVersions ?? null,
-      ...collectOptionalCompatibilityFields(packageManifest)
+      ...collectOptionalCompatibilityFields(packageManifest),
+      sideEffects: packageManifest.sideEffects ?? null
     },
     declarations: await Promise.all(declarationFiles.map(async (filePath) => ({
       path: normalizePath(path.relative(packageRoot, filePath)),
@@ -139,6 +140,12 @@ function collectDeclarationTargets(value, targets) {
     if (explicitTypeConditions.length > 0) {
       for (const [, entry] of explicitTypeConditions) {
         collectDeclarationTargets(entry, targets)
+      }
+      for (const [condition, entry] of Object.entries(value)) {
+        if (condition === 'types' || condition.startsWith('types@')) continue
+        if (entry !== null && typeof entry === 'object') {
+          collectDeclarationTargets(entry, targets)
+        }
       }
       return
     }
@@ -580,6 +587,50 @@ async function assertDeclarationScanner(packageManifest) {
   ) {
     throw new Error('Explicit export type condition handling failed its internal invariant')
   }
+  const nestedExportTargets = new Set()
+  collectDeclarationTargets({
+    custom: {
+      types: './nested.d.ts',
+      default: './missing-nested-runtime.js'
+    },
+    types: './root.d.ts',
+    default: './missing-root-runtime.js'
+  }, nestedExportTargets)
+  if (
+    JSON.stringify([...nestedExportTargets].sort()) !== JSON.stringify([
+      './nested.d.ts',
+      './root.d.ts'
+    ])
+  ) {
+    throw new Error('Nested export type condition handling failed its internal invariant')
+  }
+  const nestedImportTargets = []
+  collectPackageImportTargets({
+    custom: {
+      types: './nested-*.d.ts',
+      default: './missing-nested-runtime.js'
+    },
+    types: './root-*.d.ts',
+    default: './missing-root-runtime.js'
+  }, 'model', nestedImportTargets)
+  if (
+    JSON.stringify(nestedImportTargets.sort()) !== JSON.stringify([
+      './nested-model.d.ts',
+      './root-model.d.ts'
+    ])
+  ) {
+    throw new Error('Nested package import type condition handling failed its internal invariant')
+  }
+  const normalizedLegacySnapshot = normalizeLegacySnapshot({
+    schemaVersion: 1,
+    compatibility: { typesVersions: null }
+  }, { sideEffects: false })
+  if (
+    normalizedLegacySnapshot.compatibility.sideEffects !== false
+    || Object.hasOwn(normalizedLegacySnapshot, 'sideEffects')
+  ) {
+    throw new Error('Legacy API snapshot normalization failed its internal invariant')
+  }
   const changedDocumentation = sourceText.replace('comment-only.js', 'different-comment.js')
   if (declarationFingerprint(sourceText) !== declarationFingerprint(changedDocumentation)) {
     throw new Error('Declaration fingerprint must ignore non-semantic comments')
@@ -695,6 +746,12 @@ function collectPackageImportTargets(value, wildcardValue, targets) {
       for (const [, entry] of explicitTypeConditions) {
         collectPackageImportTargets(entry, wildcardValue, targets)
       }
+      for (const [condition, entry] of Object.entries(value)) {
+        if (condition === 'types' || condition.startsWith('types@')) continue
+        if (entry !== null && typeof entry === 'object') {
+          collectPackageImportTargets(entry, wildcardValue, targets)
+        }
+      }
       return
     }
     for (const entry of Object.values(value)) {
@@ -726,11 +783,31 @@ async function enforcePullRequestVersionPolicy(currentSnapshot, currentVersion) 
   const baseSnapshotText = await readOptionalFileAtRef(baseRef, 'api-surface.json')
   if (baseSnapshotText === undefined) return
   const baseSnapshot = parseSnapshot(baseSnapshotText, `${baseRef} public API snapshot`)
-  if (snapshotsEqual(baseSnapshot, currentSnapshot)) return
-
   const baseManifestText = await readRequiredFileAtRef(baseRef, 'package.json')
-  const baseVersion = JSON.parse(baseManifestText).version
+  const baseManifest = JSON.parse(baseManifestText)
+  const normalizedBaseSnapshot = normalizeLegacySnapshot(baseSnapshot, baseManifest)
+  if (snapshotsEqual(normalizedBaseSnapshot, currentSnapshot)) return
+
+  const baseVersion = baseManifest.version
   assertConservativeApiVersionBump(baseVersion, currentVersion)
+}
+
+function normalizeLegacySnapshot(snapshot, packageManifest) {
+  if (
+    snapshot.compatibility === null
+    || typeof snapshot.compatibility !== 'object'
+    || Array.isArray(snapshot.compatibility)
+    || Object.hasOwn(snapshot.compatibility, 'sideEffects')
+  ) {
+    return snapshot
+  }
+  return {
+    ...snapshot,
+    compatibility: {
+      ...snapshot.compatibility,
+      sideEffects: packageManifest.sideEffects ?? null
+    }
+  }
 }
 
 function assertConservativeApiVersionBump(baseVersion, currentVersion) {
