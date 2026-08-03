@@ -25,6 +25,25 @@ The goal is simple: provide focused building blocks for authentication and ident
 
 AuthModules separates orchestration, methods, persistence, cryptography, token formats, HTTP carriers, framework adapters, delivery, guards, and reliable outbox processing. Applications compose only the packages they need through the contracts package.
 
+## Install a package
+
+Packages are published independently through GitHub Packages. Configure the scope in a project or user `.npmrc` without committing a token:
+
+```ini
+@authmodules:registry=https://npm.pkg.github.com
+//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}
+```
+
+Set `NODE_AUTH_TOKEN` to a classic personal access token with `read:packages`, then install only the package you need:
+
+```sh
+npm install @authmodules/contracts
+```
+
+```ts
+import type { AuthContext } from '@authmodules/contracts'
+```
+
 ## Release status
 
 This repository contains the complete development workspace: architecture, normative contracts, package implementations, cross-package tests, and release automation. The shared repository is a development boundary only; it does not introduce a shared runtime package.
@@ -57,7 +76,7 @@ The outbox contract remains an optional extension of the stable contract surface
 
 ## Local Checks
 
-Use Node.js 24.11.0 or newer and npm 11.16.0. The codebase is checked with TypeScript 7. npm workspaces link the local packages from one atomic checkout.
+Use Node.js 24.11.0 or newer within Node.js 24 and npm 11.16.0. The codebase is checked with TypeScript 7. npm workspaces link the local packages from one atomic checkout.
 
 ```sh
 npm ci
