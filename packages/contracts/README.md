@@ -2,7 +2,7 @@
 
 TypeScript contracts shared by the AuthModules ecosystem.
 
-Version 0.1.0 defines the public boundaries for authentication methods, stores, tokens, carriers, delivery, effects, guards, transactions, security values, errors, and public views. This package contains declarations only and has no runtime side effects.
+The package defines the public boundaries for authentication methods, stores, tokens, carriers, delivery, effects, guards, transactions, security values, errors, and public views. It contains declarations only and has no runtime side effects.
 
 ## Installation
 
