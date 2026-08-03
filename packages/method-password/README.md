@@ -54,7 +54,7 @@ The default password length range is 8 to 1,024 characters. Product-specific pas
 
 ## Requirements
 
-- Node.js 24 or newer
+- Node.js 24.11.0 or newer within Node.js 24
 - Native ESM
 - An implementation of the `PasswordHasher` contract
 

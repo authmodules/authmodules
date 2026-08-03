@@ -79,7 +79,7 @@ Use a durable store and a distributed guard in multi-process production deployme
 
 ## Requirements
 
-- Node.js 24 or newer
+- Node.js 24.11.0 or newer within Node.js 24
 - Native ESM
 
 ## Development

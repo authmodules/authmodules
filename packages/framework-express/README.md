@@ -55,7 +55,7 @@ The host application still owns Helmet or equivalent security headers, CSRF prot
 
 ## Requirements
 
-- Node.js 24 or newer
+- Node.js 24.11.0 or newer within Node.js 24
 - Native ESM
 - Express or another framework exposing compatible request and response shapes
 

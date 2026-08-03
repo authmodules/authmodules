@@ -46,7 +46,7 @@ This guard is process-local and resets on restart. It does not coordinate multip
 
 ## Requirements
 
-- Node.js 24 or newer
+- Node.js 24.11.0 or newer within Node.js 24
 - Native ESM
 
 ## Development

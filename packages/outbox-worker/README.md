@@ -57,7 +57,7 @@ Processing is at least once. A process or lease failure after the provider accep
 
 ## Requirements
 
-- Node.js 24 or newer
+- Node.js 24.11.0 or newer within Node.js 24
 - Native ESM
 - A durable `OutboxWorkerStore`, `DeliveryTransport`, and matching `SecretSealer`
 

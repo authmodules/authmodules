@@ -57,7 +57,7 @@ import type {
 ## Requirements
 
 - TypeScript 5.9 or newer is recommended.
-- Runtime packages in the ecosystem require Node.js 24 or newer and native ESM.
+- Node.js 24.11.0 or newer within Node.js 24; runtime packages use native ESM.
 
 ## Development
 

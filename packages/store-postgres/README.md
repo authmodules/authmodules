@@ -83,7 +83,7 @@ A transaction-capable client is required for atomic authentication flows. Config
 
 ## Requirements
 
-- Node.js 24 or newer
+- Node.js 24.11.0 or newer within Node.js 24
 - Native ESM
 - PostgreSQL 18 or newer; CI and release verification use `postgres:18-alpine`
 

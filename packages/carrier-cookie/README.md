@@ -48,7 +48,7 @@ The package creates carrier instructions; a framework adapter is responsible for
 
 ## Requirements
 
-- Node.js 24 or newer
+- Node.js 24.11.0 or newer within Node.js 24
 - Native ESM
 
 ## Development
