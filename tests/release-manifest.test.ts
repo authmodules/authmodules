@@ -63,6 +63,10 @@ test('release automation has one direct path without lifecycle state', async () 
     checkWorkflow,
     /test "\$GITHUB_SHA" = "\$AUTHMODULES_EXPECTED_HEAD_SHA"/
   )
+  assert.match(
+    checkWorkflow,
+    /Check monorepo[\s\S]*AUTHMODULES_PR_TITLE: \$\{\{ github\.event\.pull_request\.title \|\| inputs\.pr_title \}\}/
+  )
   assert.ok(
     checkWorkflow.indexOf('Verify dispatched head')
       < checkWorkflow.indexOf('Checkout monorepo')
@@ -96,16 +100,20 @@ test('release automation has one direct path without lifecycle state', async () 
 })
 
 test('workspace manifests keep independent package identities', async () => {
+  const contractsManifest = await readJson('packages/contracts/package.json')
   for (const name of packageRepositories) {
     const packagePath = `packages/${name}`
     const manifest = await readJson(`${packagePath}/package.json`)
     assert.equal(manifest.name, `@authmodules/${name}`)
-    assert.equal(manifest.version, '0.1.0')
+    assert.equal(isExactVersion(manifest.version), true)
     assert.equal(manifest.repository.url, 'git+https://github.com/authmodules/authmodules.git')
     assert.equal(manifest.repository.directory, packagePath)
     assert.equal(manifest.publishConfig.registry, 'https://npm.pkg.github.com')
     if (name !== 'contracts') {
-      assert.equal(manifest.peerDependencies['@authmodules/contracts'], '^0.1.0')
+      assert.equal(
+        manifest.peerDependencies['@authmodules/contracts'],
+        `^${contractsManifest.version}`
+      )
     }
   }
 })

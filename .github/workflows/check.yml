@@ -70,4 +70,5 @@ jobs:
         run: npm run check
         env:
           AUTHMODULES_POSTGRES_URL: postgres://authmodules:authmodules@127.0.0.1:5432/authmodules
+          AUTHMODULES_PR_TITLE: ${{ github.event.pull_request.title || inputs.pr_title }}
           GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha || inputs.base_sha }}

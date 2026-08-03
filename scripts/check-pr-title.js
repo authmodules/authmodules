@@ -1,3 +1,5 @@
+import { isConventionalTitle } from './conventional-title.js'
+
 const title = process.env.AUTHMODULES_PR_TITLE?.trim()
 
 if (!title) {
@@ -5,9 +7,7 @@ if (!title) {
   process.exit(0)
 }
 
-const conventionalTitle = /^(?:build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(?:\([a-z0-9][a-z0-9._/-]*\))?!?: .+/
-
-if (!conventionalTitle.test(title)) {
+if (!isConventionalTitle(title)) {
   throw new Error(
     'Pull request title must follow Conventional Commits because squash titles drive releases'
   )

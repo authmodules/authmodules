@@ -3,6 +3,7 @@ import { execFile } from 'node:child_process'
 import { access, glob, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
+import { assertConservativeApiRelease } from './package-version-policy.js'
 
 const execFileAsync = promisify(execFile)
 const packageRoot = path.resolve(process.cwd())
@@ -1144,7 +1145,11 @@ async function enforcePullRequestVersionPolicy(currentSnapshot, currentVersion) 
   if (snapshotsEqual(normalizedBaseSnapshot, currentSnapshot)) return
 
   const baseVersion = baseManifest.version
-  assertConservativeApiVersionBump(baseVersion, currentVersion)
+  assertConservativeApiRelease(
+    baseVersion,
+    currentVersion,
+    process.env.AUTHMODULES_PR_TITLE
+  )
 }
 
 function normalizeLegacySnapshot(snapshot, packageManifest) {
@@ -1162,36 +1167,6 @@ function normalizeLegacySnapshot(snapshot, packageManifest) {
       ...snapshot.compatibility,
       sideEffects: packageManifest.sideEffects ?? null
     }
-  }
-}
-
-function assertConservativeApiVersionBump(baseVersion, currentVersion) {
-  const base = parseVersion(baseVersion)
-  const current = parseVersion(currentVersion)
-  const valid = base.major === 0
-    ? current.major > 0 || (current.major === 0 && current.minor > base.minor)
-    : current.major > base.major
-
-  if (!valid) {
-    const required = base.major === 0
-      ? `at least 0.${base.minor + 1}.0`
-      : `at least ${base.major + 1}.0.0`
-    throw new Error(
-      `Public API changed from ${baseVersion}; version ${currentVersion} is insufficient. `
-      + `Use ${required} under the conservative compatibility policy`
-    )
-  }
-}
-
-function parseVersion(value) {
-  const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(value)
-  if (match === null) {
-    throw new Error(`Expected an exact stable semantic version, received ${String(value)}`)
-  }
-  return {
-    major: Number(match[1]),
-    minor: Number(match[2]),
-    patch: Number(match[3])
   }
 }
 

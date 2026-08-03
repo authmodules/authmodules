@@ -67,7 +67,9 @@
     }
   },
   "compatibility": {
-    "engines": null,
+    "engines": {
+      "node": ">=24.11.0 <25"
+    },
     "peerDependencies": null,
     "peerDependenciesMeta": null,
     "typesVersions": null,

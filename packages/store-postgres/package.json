@@ -6,7 +6,7 @@
   "license": "MIT",
   "sideEffects": false,
   "engines": {
-    "node": ">=24"
+    "node": ">=24.11.0 <25"
   },
   "packageManager": "npm@11.16.0",
   "devEngines": {
