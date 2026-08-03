@@ -50,7 +50,7 @@
   "devDependencies": {
     "@babel/parser": "^8.0.4",
     "pg": "^8.22.0",
-    "release-please": "17.6.1",
+    "release-please": "17.11.0",
     "typescript": "^7.0.2"
   }
 }
