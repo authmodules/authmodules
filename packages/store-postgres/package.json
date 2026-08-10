@@ -40,7 +40,7 @@
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",
     "pg": "^8.22.0",
-    "publint": "^0.3.22",
+    "publint": "^0.3.23",
     "typescript": "^7.0.2"
   },
   "exports": {
